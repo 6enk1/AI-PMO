@@ -19,6 +19,7 @@ from .models import AIRiskFinding, Issue, Milestone, utcnow
 
 def task_to_read(view: TaskView, snapshot: ProjectSnapshot) -> schemas.TaskRead:
     task = view.task
+    ancestors = snapshot.ancestors(view)
     return schemas.TaskRead(
         id=task.id,
         project_id=task.project_id,
@@ -39,6 +40,11 @@ def task_to_read(view: TaskView, snapshot: ProjectSnapshot) -> schemas.TaskRead:
         created_at=task.created_at,
         updated_at=task.updated_at,
         owner_name=snapshot.owner_name(task.owner_id),
+        parent_task_title=ancestors[-1].title if ancestors else None,
+        category=ancestors[0].title if ancestors else None,
+        path_titles=[a.title for a in ancestors],
+        depth=len(ancestors),
+        child_count=len(view.child_ids),
         predecessor_task_ids=view.predecessor_ids,
         successor_task_ids=view.successor_ids,
         child_task_ids=view.child_ids,
@@ -81,6 +87,7 @@ def issue_to_read(issue: Issue, snapshot: ProjectSnapshot | None = None) -> sche
         updated_at=issue.updated_at,
         owner_name=snapshot.owner_name(issue.owner_id) if snapshot else (issue.owner.name if issue.owner else None),
         task_title=task_title,
+        task_category=snapshot.category_of(issue.task_id) if snapshot else None,
         is_overdue=bool(issue.due_date and issue.due_date < today and issue.status not in ("resolved", "closed")),
     )
 
@@ -130,7 +137,9 @@ def person_workload(person_id: int, snapshot: ProjectSnapshot) -> schemas.Person
     )
 
 
-def finding_to_schema(raw: RawFinding, index: int) -> schemas.Finding:
+def finding_to_schema(
+    raw: RawFinding, index: int, snapshot: ProjectSnapshot | None = None
+) -> schemas.Finding:
     return schemas.Finding(
         id=f"{raw.category}-{index}",
         category=raw.category,  # type: ignore[arg-type]
@@ -141,6 +150,7 @@ def finding_to_schema(raw: RawFinding, index: int) -> schemas.Finding:
         risk_score=raw.risk_score,
         task_id=raw.task_id,
         task_title=raw.task_title,
+        task_category=snapshot.category_of(raw.task_id) if snapshot else None,
         person_id=raw.person_id,
         person_name=raw.person_name,
         explanation=raw.explanation or raw.title,
@@ -165,6 +175,7 @@ def task_risk(view: TaskView, snapshot: ProjectSnapshot) -> schemas.TaskRisk:
         task_id=view.id,
         task_code=view.code,
         task_title=view.title,
+        task_category=snapshot.category_of(view.id),
         owner_name=snapshot.owner_name(view.owner_id),
         planned_end=view.planned_end,
         progress=view.progress,
@@ -273,8 +284,14 @@ def build_ai_pmo(
         llm_used, llm_note = result.llm_used, result.note
     all_findings = _default_explanations(all_findings)
 
-    hidden_schema = [finding_to_schema(f, i) for i, f in enumerate(f for f in all_findings if f.category == "hidden_issue")]
-    action_schema = [finding_to_schema(f, i) for i, f in enumerate(f for f in all_findings if f.category == "delay_action")]
+    hidden_schema = [
+        finding_to_schema(f, i, snapshot)
+        for i, f in enumerate(f for f in all_findings if f.category == "hidden_issue")
+    ]
+    action_schema = [
+        finding_to_schema(f, i, snapshot)
+        for i, f in enumerate(f for f in all_findings if f.category == "delay_action")
+    ]
     risks = [task_risk(v, snapshot) for v in snapshot.high_risk_views(threshold=risk_threshold)]
     action_by_task = {f.task_id: f for f in action_schema}
     for risk in risks:

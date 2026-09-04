@@ -81,15 +81,20 @@ export function GanttChart({
           <div
             key={task.id}
             className="flex h-10 items-center gap-2 border-b border-slate-50 px-3 text-xs"
-            title={task.title}
+            title={[...task.path_titles, task.title].join(" / ")}
           >
-            <button
-              className="truncate text-left font-medium text-ink-800 hover:underline"
-              onClick={() => onSelect?.(task)}
-            >
-              {task.title}
-            </button>
-            <span className="ml-auto shrink-0 text-[11px] text-ink-400">{task.owner_name ?? "未設定"}</span>
+            <div className="min-w-0 flex-1">
+              {task.category && (
+                <p className="truncate text-[10px] leading-3 text-ink-400">{task.category}</p>
+              )}
+              <button
+                className="block w-full truncate text-left font-medium leading-4 text-ink-800 hover:underline"
+                onClick={() => onSelect?.(task)}
+              >
+                {task.title}
+              </button>
+            </div>
+            <span className="shrink-0 text-[11px] text-ink-400">{task.owner_name ?? "未設定"}</span>
           </div>
         ))}
       </div>

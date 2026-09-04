@@ -148,6 +148,7 @@ function RiskCard({ risk }: { risk: TaskRisk }) {
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
+          {risk.task_category && <p className="text-xs text-ink-400">{risk.task_category}</p>}
           <h3 className="text-sm font-semibold">
             {risk.task_code && <span className="mr-2 text-ink-400">{risk.task_code}</span>}
             {risk.task_title}

@@ -223,7 +223,20 @@ export default function IssuesPage() {
                     <Badge className={severityClass(issue.severity)}>{SEVERITY_LABELS[issue.severity]}</Badge>
                   </td>
                   <td className="td text-xs">{issue.owner_name ?? "未設定"}</td>
-                  <td className="td max-w-[200px] truncate text-xs text-ink-500">{issue.task_title ?? "—"}</td>
+                  <td className="td max-w-[220px] text-xs text-ink-500">
+                    {issue.task_title ? (
+                      <>
+                        {issue.task_category && (
+                          <span className="block truncate text-[11px] text-ink-400">
+                            {issue.task_category}
+                          </span>
+                        )}
+                        <span className="block truncate">{issue.task_title}</span>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="td text-xs tabular-nums">{formatFullDate(issue.raised_on)}</td>
                   <td className={`td text-xs tabular-nums ${issue.is_overdue ? "text-rose-600" : ""}`}>
                     {formatFullDate(issue.due_date)}
@@ -335,8 +348,7 @@ export default function IssuesPage() {
                   <option value="">なし</option>
                   {tasks.map((task) => (
                     <option key={task.id} value={task.id}>
-                      {task.code ? `${task.code} ` : ""}
-                      {task.title}
+                      {[...task.path_titles, task.title].join(" / ")}
                     </option>
                   ))}
                 </select>

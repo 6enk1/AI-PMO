@@ -39,6 +39,7 @@ export default function TasksPage() {
     status: [] as string[],
     priority: [] as string[],
     owner_id: "",
+    category_task_id: "",
     overdue: false,
     risk_min: "",
     sort: "planned_end",
@@ -55,6 +56,7 @@ export default function TasksPage() {
           status: filters.status,
           priority: filters.priority,
           owner_id: filters.owner_id || undefined,
+          category_task_id: filters.category_task_id || undefined,
           overdue: filters.overdue,
           risk_min: filters.risk_min || undefined,
           sort: filters.sort,
@@ -77,6 +79,16 @@ export default function TasksPage() {
   }, [load]);
 
   const allTasks = useMemo(() => tasks, [tasks]);
+
+  // 子を持つTaskをカテゴリ候補として扱う（フィルタが効いている間も選択肢を保つ）
+  const [categories, setCategories] = useState<Task[]>([]);
+  useEffect(() => {
+    if (!projectId) return;
+    void api
+      .listTasks(projectId, { sort: "code", order: "asc" })
+      .then((all) => setCategories(all.filter((task) => task.child_task_ids.length > 0)))
+      .catch(() => setCategories([]));
+  }, [projectId, tasks.length]);
 
   async function quickUpdate(task: Task, payload: Record<string, unknown>) {
     try {
@@ -139,6 +151,22 @@ export default function TasksPage() {
               {people.map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <span className="label">カテゴリ（親タスク）</span>
+            <select
+              className="input"
+              value={filters.category_task_id}
+              onChange={(event) => setFilters({ ...filters, category_task_id: event.target.value })}
+            >
+              <option value="">すべて</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {"　".repeat(category.depth)}
+                  {category.title}
                 </option>
               ))}
             </select>
@@ -223,6 +251,7 @@ export default function TasksPage() {
                 status: [],
                 priority: [],
                 owner_id: "",
+                category_task_id: "",
                 overdue: false,
                 risk_min: "",
                 sort: "planned_end",
@@ -246,6 +275,7 @@ export default function TasksPage() {
             <thead className="bg-slate-50">
               <tr>
                 <th className="th">ID</th>
+                <th className="th">カテゴリ</th>
                 <th className="th">タスク名</th>
                 <th className="th">担当</th>
                 <th className="th">予定</th>
@@ -262,7 +292,35 @@ export default function TasksPage() {
               {tasks.map((task) => (
                 <tr key={task.id} className="border-t border-slate-100 hover:bg-slate-50/60">
                   <td className="td whitespace-nowrap text-xs text-ink-500">{task.code}</td>
-                  <td className="td">
+                  <td className="td w-[150px] max-w-[150px]">
+                    {task.path_titles.length > 0 ? (
+                      <button
+                        className="truncate text-left text-xs text-ink-600 hover:underline"
+                        title={task.path_titles.join(" / ")}
+                        onClick={() =>
+                          setFilters({ ...filters, category_task_id: String(task.parent_task_id) })
+                        }
+                      >
+                        <span className="block truncate font-medium">{task.category}</span>
+                        {task.path_titles.length > 1 && (
+                          <span className="block truncate text-[11px] text-ink-400">
+                            {task.path_titles.slice(1).join(" / ")}
+                          </span>
+                        )}
+                      </button>
+                    ) : task.child_count > 0 ? (
+                      <button
+                        onClick={() => setFilters({ ...filters, category_task_id: String(task.id) })}
+                      >
+                        <Badge className="whitespace-nowrap border-indigo-200 bg-indigo-50 text-indigo-700">
+                          カテゴリ 子{task.child_count}
+                        </Badge>
+                      </button>
+                    ) : (
+                      <span className="text-xs text-ink-300">—</span>
+                    )}
+                  </td>
+                  <td className="td min-w-[220px]">
                     <button
                       className="text-left font-medium hover:underline"
                       onClick={() => {
@@ -270,7 +328,6 @@ export default function TasksPage() {
                         setShowForm(true);
                       }}
                     >
-                      {task.parent_task_id && <span className="mr-1 text-ink-300">└</span>}
                       {task.title}
                     </button>
                     <div className="mt-0.5 flex flex-wrap gap-1">

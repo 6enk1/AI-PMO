@@ -124,3 +124,59 @@ def test_parent_child_relationship(client, project, factory):
 
     self_parent = client.patch(f"/api/tasks/{parent.id}", json={"parent_task_id": parent.id})
     assert self_parent.status_code == 400
+
+
+def test_category_fields_expose_the_parent_chain(client, project, factory):
+    """親タスクを大カテゴリとして各画面に出せるだけの情報が返ること。"""
+    root = factory.task("ソフトウェア開発", code="C-1")
+    middle = factory.task("フェーズ1: 要件・設計", code="C-1-1", parent_task_id=root.id)
+    leaf = factory.task("要件定義", code="T-001", parent_task_id=middle.id, planned_end=day(10))
+
+    tasks = {t["id"]: t for t in client.get(f"/api/projects/{project.id}/tasks").json()}
+
+    leaf_read = tasks[leaf.id]
+    assert leaf_read["category"] == "ソフトウェア開発"
+    assert leaf_read["parent_task_title"] == "フェーズ1: 要件・設計"
+    assert leaf_read["path_titles"] == ["ソフトウェア開発", "フェーズ1: 要件・設計"]
+    assert leaf_read["depth"] == 2
+    assert leaf_read["child_count"] == 0
+
+    root_read = tasks[root.id]
+    assert root_read["category"] is None
+    assert root_read["path_titles"] == []
+    assert root_read["child_count"] == 1
+
+
+def test_filter_by_category_returns_every_descendant(client, project, factory):
+    root = factory.task("ソフトウェア開発")
+    phase = factory.task("フェーズ1", parent_task_id=root.id)
+    leaf = factory.task("要件定義", parent_task_id=phase.id)
+    other = factory.task("インフラ構築")
+
+    inside = client.get(
+        f"/api/projects/{project.id}/tasks", params={"category_task_id": root.id}
+    ).json()
+    assert {t["title"] for t in inside} == {"ソフトウェア開発", "フェーズ1", "要件定義"}
+    assert other.title not in {t["title"] for t in inside}
+
+    # 直下だけを見たいときは parent_task_id
+    direct = client.get(
+        f"/api/projects/{project.id}/tasks", params={"parent_task_id": root.id}
+    ).json()
+    assert [t["title"] for t in direct] == ["フェーズ1"]
+
+    leaves = client.get(f"/api/projects/{project.id}/tasks", params={"leaves_only": True}).json()
+    assert {t["title"] for t in leaves} == {"要件定義", "インフラ構築"}
+    assert leaf.id in {t["id"] for t in leaves}
+
+
+def test_category_survives_a_broken_parent_link(client, project, factory):
+    """親子ループが混入してもカテゴリ解決が無限ループしないこと。"""
+    first = factory.task("A")
+    second = factory.task("B", parent_task_id=first.id)
+    first.parent_task_id = second.id
+    client.patch(f"/api/tasks/{first.id}", json={"code": "A-1"})
+
+    tasks = client.get(f"/api/projects/{project.id}/tasks").json()
+    assert len(tasks) == 2
+    assert all("category" in task for task in tasks)

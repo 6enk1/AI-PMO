@@ -64,7 +64,7 @@ cd frontend && npm run typecheck && npm run build
 | 画面 | 内容 |
 | --- | --- |
 | **Project Command Center** (`/`) | Health Score とその減点内訳、未完了 / 期限超過 / High Risk / Hidden Issue / Open Issue 件数、次回マイルストーン、**今日見るべき項目**（最大10件） |
-| **Task管理** (`/tasks`) | 一覧・新規・編集・削除、Status/Owner のインライン変更、検索・Status/Priority/担当者/期限超過/Risk下限フィルタ、各列ソート |
+| **Task管理** (`/tasks`) | 一覧・新規・編集・削除、Status/Owner のインライン変更、**カテゴリ（親タスク）列**とカテゴリ絞り込み、検索・Status/Priority/担当者/期限超過/Risk下限フィルタ、各列ソート |
 | **Schedule** (`/schedule`) | ガントチャート（予定バー・進捗・実績バー・本日線・マイルストーン・クリティカルパス表示）、遅延Task一覧、予実差 |
 | **Issue管理** (`/issues`) | Taskとは独立したIssueのCRUD、Severity / Status / Owner / Due Date / 関連Task |
 | **担当者** (`/people`) | 氏名・Role・capacity、担当件数 / 未完了 / 期限超過 / 高リスク / 今週期限、負荷率と負荷レベル |
@@ -169,6 +169,9 @@ Project ──┬── Task ──┬── TaskDependency (predecessor / succe
 ```
 
 `Task` は Task ID / 親 / 子 / 担当者 / 開始・終了予定日 / 実績日 / 進捗率 / Status / Priority / 依存 / 備考 / 関連Issue を保持。
+親子は何階層でもネストでき（`ソフトウェア開発 > フェーズ1 > 要件定義`）、最上位の親を「カテゴリ」として
+Task一覧・ガント・Issue一覧・AI PMOの各Findingに表示します。APIは `category` / `parent_task_title` /
+`path_titles` / `depth` を返し、`category_task_id` で配下Taskを階層まるごと絞り込めます。
 `Issue` は Issue ID / 課題名 / 詳細 / Severity / Owner / 発生日 / Due Date / Status / 関連Task / 対応方針 / Resolution を保持します。
 
 ---

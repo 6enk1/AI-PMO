@@ -37,7 +37,7 @@ def hidden_issues(snapshot: ProjectSnapshot = Depends(get_snapshot)) -> list[sch
     from ..analysis.hidden_issues import detect_hidden_issues
 
     findings = services._default_explanations(detect_hidden_issues(snapshot))
-    return [services.finding_to_schema(f, i) for i, f in enumerate(findings)]
+    return [services.finding_to_schema(f, i, snapshot) for i, f in enumerate(findings)]
 
 
 @router.get("/llm-status")

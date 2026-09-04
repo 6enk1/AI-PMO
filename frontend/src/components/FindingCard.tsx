@@ -41,6 +41,7 @@ export function FindingCard({ finding }: { finding: Finding }) {
           <p className="mt-1 text-sm leading-relaxed text-ink-600">{finding.explanation}</p>
         </div>
         <div className="text-right text-xs text-ink-400">
+          {finding.task_category && <p>カテゴリ: {finding.task_category}</p>}
           {finding.task_title && <p>対象Task: {finding.task_title}</p>}
           {finding.person_name && <p>対象Owner: {finding.person_name}</p>}
         </div>

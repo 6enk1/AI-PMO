@@ -166,3 +166,29 @@ def test_empty_project_does_not_break_analysis(client, project):
     assert dashboard["health_score"] == 100
     ai = client.get(f"/api/projects/{project.id}/ai-pmo").json()
     assert ai["hidden_issues"] == [] and ai["delay_risks"] == []
+
+
+def test_findings_and_risks_carry_the_task_category(client, project, factory):
+    tasks = build_delayed_project(factory)
+    phase = factory.task("フェーズ1: 要件・設計")
+    client.patch(f"/api/tasks/{tasks['spec'].id}", json={"parent_task_id": phase.id})
+
+    body = client.get(f"/api/projects/{project.id}/ai-pmo", params={"as_of": str(TODAY)}).json()
+    spec_findings = [
+        f for f in body["hidden_issues"] + body["delay_actions"] if f["task_id"] == tasks["spec"].id
+    ]
+    assert spec_findings
+    assert all(f["task_category"] == "フェーズ1: 要件・設計" for f in spec_findings)
+
+    spec_risk = [r for r in body["delay_risks"] if r["task_id"] == tasks["spec"].id]
+    assert spec_risk and spec_risk[0]["task_category"] == "フェーズ1: 要件・設計"
+
+
+def test_issue_read_carries_the_related_task_category(client, project, factory):
+    phase = factory.task("フェーズ2: 開発")
+    task = factory.task("バックエンド実装", parent_task_id=phase.id)
+    factory.issue("性能要件が未確定", task_id=task.id, severity="high", status="open")
+
+    issue = client.get(f"/api/projects/{project.id}/issues").json()[0]
+    assert issue["task_title"] == "バックエンド実装"
+    assert issue["task_category"] == "フェーズ2: 開発"

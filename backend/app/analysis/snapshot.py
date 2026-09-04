@@ -426,6 +426,28 @@ class ProjectSnapshot:
     def open_issues_for_task(self, task_id: int) -> list[Issue]:
         return [i for i in self.issues_for_task(task_id) if i.status not in CLOSED_ISSUE_STATUSES]
 
+    def ancestors(self, view: TaskView) -> list[TaskView]:
+        """Parent chain from the root down to the direct parent."""
+        chain: list[TaskView] = []
+        seen: set[int] = {view.id}
+        current = view.task.parent_task_id
+        while current and current in self.views and current not in seen:
+            seen.add(current)
+            chain.append(self.views[current])
+            current = self.views[current].task.parent_task_id
+        chain.reverse()
+        return chain
+
+    def category_of(self, task_id: int | None) -> str | None:
+        """The top level parent - what a PM reads as the task's category."""
+        if task_id is None or task_id not in self.views:
+            return None
+        chain = self.ancestors(self.views[task_id])
+        return chain[0].title if chain else None
+
+    def is_descendant_of(self, view: TaskView, ancestor_id: int) -> bool:
+        return any(a.id == ancestor_id for a in self.ancestors(view))
+
     def owner_name(self, owner_id: int | None) -> str | None:
         person = self.people_by_id.get(owner_id) if owner_id else None
         return person.name if person else None

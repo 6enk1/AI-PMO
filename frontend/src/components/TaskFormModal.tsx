@@ -117,8 +117,7 @@ export function TaskFormModal({ projectId, task, tasks, people, onClose, onSaved
               <option value="">（なし）</option>
               {selectable.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.code ? `${candidate.code} ` : ""}
-                  {candidate.title}
+                  {[...candidate.path_titles, candidate.title].join(" / ")}
                 </option>
               ))}
             </select>

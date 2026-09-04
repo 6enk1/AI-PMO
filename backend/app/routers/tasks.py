@@ -60,6 +60,8 @@ def list_tasks(
     risk_min: float | None = None,
     q: str | None = None,
     parent_task_id: int | None = None,
+    category_task_id: int | None = None,
+    leaves_only: bool = False,
     sort: str = "planned_end",
     order: str = "asc",
 ) -> list[schemas.TaskRead]:
@@ -78,6 +80,15 @@ def list_tasks(
         views = [v for v in views if v.risk_score >= risk_min]
     if parent_task_id is not None:
         views = [v for v in views if v.task.parent_task_id == parent_task_id]
+    if category_task_id is not None:
+        # Everything under the category, at any depth (the category itself included).
+        views = [
+            v
+            for v in views
+            if v.id == category_task_id or snapshot.is_descendant_of(v, category_task_id)
+        ]
+    if leaves_only:
+        views = [v for v in views if v.is_leaf]
     if q:
         needle = q.lower()
         views = [

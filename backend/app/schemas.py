@@ -161,6 +161,11 @@ class TaskRead(ORMModel, TaskBase):
     created_at: datetime
     updated_at: datetime
     owner_name: str | None = None
+    parent_task_title: str | None = None
+    category: str | None = None  # 最上位の親タスク = 大カテゴリ
+    path_titles: list[str] = Field(default_factory=list)  # ルート → 直近の親
+    depth: int = 0
+    child_count: int = 0
     predecessor_task_ids: list[int] = Field(default_factory=list)
     successor_task_ids: list[int] = Field(default_factory=list)
     child_task_ids: list[int] = Field(default_factory=list)
@@ -217,6 +222,7 @@ class IssueRead(ORMModel, IssueBase):
     updated_at: datetime
     owner_name: str | None = None
     task_title: str | None = None
+    task_category: str | None = None
     is_overdue: bool = False
 
 
@@ -275,6 +281,7 @@ class Finding(BaseModel):
     risk_score: float | None = None
     task_id: int | None = None
     task_title: str | None = None
+    task_category: str | None = None
     person_id: int | None = None
     person_name: str | None = None
     explanation: str
@@ -300,6 +307,7 @@ class TaskRisk(BaseModel):
     task_id: int
     task_code: str | None = None
     task_title: str
+    task_category: str | None = None
     owner_name: str | None = None
     planned_end: date | None = None
     progress: float

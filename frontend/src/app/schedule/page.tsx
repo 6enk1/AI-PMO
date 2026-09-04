@@ -146,6 +146,9 @@ export default function SchedulePage() {
               {delayed.map((task) => (
                 <li key={task.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-3">
                   <div className="min-w-0">
+                    {task.category && (
+                      <p className="truncate text-[11px] text-ink-400">{task.category}</p>
+                    )}
                     <p className="truncate text-sm font-medium">{task.title}</p>
                     <p className="text-xs text-ink-500">
                       予定 {formatFullDate(task.planned_end)} / 担当 {task.owner_name ?? "未設定"} / 進捗{" "}

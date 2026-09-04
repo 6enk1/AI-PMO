@@ -26,6 +26,11 @@ export interface Task {
   parent_task_id: number | null;
   owner_id: number | null;
   owner_name: string | null;
+  parent_task_title: string | null;
+  category: string | null;
+  path_titles: string[];
+  depth: number;
+  child_count: number;
   planned_start: string | null;
   planned_end: string | null;
   actual_start: string | null;
@@ -77,6 +82,7 @@ export interface Issue {
   code: string | null;
   task_id: number | null;
   task_title: string | null;
+  task_category: string | null;
   title: string;
   description: string | null;
   severity: Severity;
@@ -125,6 +131,7 @@ export interface Finding {
   risk_score: number | null;
   task_id: number | null;
   task_title: string | null;
+  task_category: string | null;
   person_id: number | null;
   person_name: string | null;
   explanation: string;
@@ -150,6 +157,7 @@ export interface TaskRisk {
   task_id: number;
   task_code: string | null;
   task_title: string;
+  task_category: string | null;
   owner_name: string | null;
   planned_end: string | null;
   progress: number;
