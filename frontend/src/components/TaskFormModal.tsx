@@ -33,18 +33,42 @@ export function TaskFormModal({ projectId, task, tasks, people, onClose, onSaved
     notes: task?.notes ?? "",
   });
   const [predecessors, setPredecessors] = useState<number[]>(task?.predecessor_task_ids ?? []);
+  const [newCategory, setNewCategory] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const NEW_CATEGORY = "__new__";
+  const creatingCategory = form.parent_task_id === NEW_CATEGORY;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
     setError(null);
+
+    // 新しいカテゴリ名が入力されていれば、親タスクとして先に作る
+    let parentId: number | null = form.parent_task_id ? Number(form.parent_task_id) : null;
+    if (creatingCategory) {
+      const name = newCategory.trim();
+      if (!name) {
+        setError("新しいカテゴリ名を入力してください。");
+        setSaving(false);
+        return;
+      }
+      const existing = tasks.find((candidate) => candidate.title === name);
+      try {
+        parentId = existing ? existing.id : (await api.createTask(projectId, { title: name })).id;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "カテゴリの作成に失敗しました");
+        setSaving(false);
+        return;
+      }
+    }
+
     const payload = {
       title: form.title,
       code: form.code || null,
       description: form.description || null,
-      parent_task_id: form.parent_task_id ? Number(form.parent_task_id) : null,
+      parent_task_id: parentId,
       owner_id: form.owner_id ? Number(form.owner_id) : null,
       planned_start: form.planned_start || null,
       planned_end: form.planned_end || null,
@@ -72,7 +96,28 @@ export function TaskFormModal({ projectId, task, tasks, people, onClose, onSaved
     }
   }
 
+  // 自分自身と、自分の子孫は親に選べない（循環してしまうため）
+  const descendantIds = (() => {
+    if (!task) return new Set<number>();
+    const ids = new Set<number>([task.id]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const candidate of tasks) {
+        if (candidate.parent_task_id && ids.has(candidate.parent_task_id) && !ids.has(candidate.id)) {
+          ids.add(candidate.id);
+          added = true;
+        }
+      }
+    }
+    return ids;
+  })();
   const selectable = tasks.filter((candidate) => candidate.id !== task?.id);
+  const parentCandidates = tasks.filter((candidate) => !descendantIds.has(candidate.id));
+  const categoryOptions = parentCandidates.filter((c) => c.child_task_ids.length > 0);
+  const otherOptions = parentCandidates.filter((c) => c.child_task_ids.length === 0);
+  const pathOf = (candidate: Task) => [...candidate.path_titles, candidate.title].join(" / ");
+  const currentPath = task?.path_titles.length ? task.path_titles.join(" / ") : null;
 
   return (
     <Modal title={task ? `Task編集: ${task.title}` : "Task新規作成"} onClose={onClose} wide>
@@ -108,19 +153,44 @@ export function TaskFormModal({ projectId, task, tasks, people, onClose, onSaved
         </Field>
 
         <div className="grid gap-3 md:grid-cols-3">
-          <Field label="親タスク">
+          <Field label="カテゴリ（親タスク）">
             <select
               className="input"
               value={form.parent_task_id}
               onChange={(event) => setForm({ ...form, parent_task_id: event.target.value })}
             >
               <option value="">（なし）</option>
-              {selectable.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {[...candidate.path_titles, candidate.title].join(" / ")}
-                </option>
-              ))}
+              <option value={NEW_CATEGORY}>＋ 新しいカテゴリを作成…</option>
+              {categoryOptions.length > 0 && (
+                <optgroup label="カテゴリ">
+                  {categoryOptions.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {pathOf(candidate)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {otherOptions.length > 0 && (
+                <optgroup label="その他のTask">
+                  {otherOptions.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {pathOf(candidate)}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            {creatingCategory ? (
+              <input
+                className="input mt-2"
+                autoFocus
+                placeholder="例: ソフトウェア開発"
+                value={newCategory}
+                onChange={(event) => setNewCategory(event.target.value)}
+              />
+            ) : (
+              currentPath && <p className="mt-1 text-[11px] text-ink-400">現在: {currentPath}</p>
+            )}
           </Field>
           <Field label="担当者">
             <select

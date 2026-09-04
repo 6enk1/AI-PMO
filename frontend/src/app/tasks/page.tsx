@@ -80,15 +80,16 @@ export default function TasksPage() {
 
   const allTasks = useMemo(() => tasks, [tasks]);
 
-  // 子を持つTaskをカテゴリ候補として扱う（フィルタが効いている間も選択肢を保つ）
-  const [categories, setCategories] = useState<Task[]>([]);
+  // フィルタが効いていても、親タスク・カテゴリの選択肢は全Taskから出す
+  const [allProjectTasks, setAllProjectTasks] = useState<Task[]>([]);
   useEffect(() => {
     if (!projectId) return;
     void api
       .listTasks(projectId, { sort: "code", order: "asc" })
-      .then((all) => setCategories(all.filter((task) => task.child_task_ids.length > 0)))
-      .catch(() => setCategories([]));
-  }, [projectId, tasks.length]);
+      .then(setAllProjectTasks)
+      .catch(() => setAllProjectTasks([]));
+  }, [projectId, tasks]);
+  const categories = allProjectTasks.filter((task) => task.child_task_ids.length > 0);
 
   async function quickUpdate(task: Task, payload: Record<string, unknown>) {
     try {
@@ -436,7 +437,7 @@ export default function TasksPage() {
         <TaskFormModal
           projectId={projectId}
           task={editing}
-          tasks={allTasks}
+          tasks={allProjectTasks.length ? allProjectTasks : allTasks}
           people={people}
           onClose={() => setShowForm(false)}
           onSaved={() => void load()}
