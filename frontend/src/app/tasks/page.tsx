@@ -488,22 +488,27 @@ export default function TasksPage() {
                     </div>
                   </td>
                   <td className="td whitespace-nowrap">
-                    <select
-                      className="w-28 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm hover:border-slate-300"
-                      value={task.owner_id ?? ""}
-                      onChange={(event) =>
-                        void quickUpdate(task, {
-                          owner_id: event.target.value ? Number(event.target.value) : null,
-                        })
-                      }
-                    >
-                      <option value="">未設定</option>
-                      {people.map((person) => (
-                        <option key={person.id} value={person.id}>
-                          {person.name}
-                        </option>
-                      ))}
-                    </select>
+                    {task.is_summary ? (
+                      // カテゴリに担当者は不要。設定済みのときだけ表示し、変更は編集画面で行う
+                      <span className="px-1 text-sm text-ink-400">{task.owner_name ?? "—"}</span>
+                    ) : (
+                      <select
+                        className="w-28 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm hover:border-slate-300"
+                        value={task.owner_id ?? ""}
+                        onChange={(event) =>
+                          void quickUpdate(task, {
+                            owner_id: event.target.value ? Number(event.target.value) : null,
+                          })
+                        }
+                      >
+                        <option value="">未設定</option>
+                        {people.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </td>
                   <td className="td whitespace-nowrap text-xs tabular-nums">
                     {formatFullDate(task.effective_start)}
