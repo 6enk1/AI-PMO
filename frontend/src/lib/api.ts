@@ -1,5 +1,7 @@
 import type {
   AIPMOResponse,
+  CategoryApplyResult,
+  CategorySuggestResponse,
   Dashboard,
   ImportAnalyze,
   ImportResult,
@@ -108,6 +110,17 @@ export const api = {
     request<{ llm_available: boolean; model: string | null; note: string }>(
       `/api/projects/${projectId}/llm-status`,
     ),
+
+  // categories
+  suggestCategories: (projectId: number, params: Record<string, unknown> = {}) =>
+    request<CategorySuggestResponse>(
+      `/api/projects/${projectId}/categories/suggest${query(params)}`,
+    ),
+  applyCategories: (projectId: number, assignments: { task_id: number; category_name: string }[]) =>
+    request<CategoryApplyResult>(`/api/projects/${projectId}/categories/apply`, {
+      method: "POST",
+      body: JSON.stringify({ assignments }),
+    }),
 
   // import
   analyzeImport: (file: File) => {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useProjects } from "@/components/ProjectProvider";
+import { CategorySuggestModal } from "@/components/CategorySuggestModal";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { Badge, Card, EmptyState, ErrorBanner, Loading, ProgressBar } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -12,9 +13,10 @@ import {
   riskClass,
   statusClass,
 } from "@/lib/format";
-import type { Person, Task, TaskStatus } from "@/lib/types";
+import type { CategorySuggestion, Person, Task, TaskStatus } from "@/lib/types";
 
 const NEW_CATEGORY = "__new__";
+const SUGGESTED = "__suggested__:";
 
 const SORTS = [
   { value: "planned_end", label: "終了予定日" },
@@ -35,6 +37,8 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [hints, setHints] = useState<Record<number, CategorySuggestion>>({});
 
   const [filters, setFilters] = useState({
     q: "",
@@ -93,6 +97,17 @@ export default function TasksPage() {
   }, [projectId, tasks]);
   const categories = allProjectTasks.filter((task) => task.child_task_ids.length > 0);
 
+  // 行のセレクトに出す提案（LLMを使わないルールベースなので即時・無料）
+  useEffect(() => {
+    if (!projectId) return;
+    void api
+      .suggestCategories(projectId, { use_llm: false })
+      .then((body) =>
+        setHints(Object.fromEntries(body.suggestions.map((s) => [s.task_id, s]))),
+      )
+      .catch(() => setHints({}));
+  }, [projectId, allProjectTasks]);
+
   async function quickUpdate(task: Task, payload: Record<string, unknown>) {
     try {
       await api.updateTask(task.id, payload);
@@ -120,19 +135,29 @@ export default function TasksPage() {
 
   async function changeCategory(task: Task, value: string) {
     if (!projectId) return;
+    if (value.startsWith(SUGGESTED)) {
+      await assignCategoryByName(task, value.slice(SUGGESTED.length));
+      return;
+    }
     if (value === NEW_CATEGORY) {
       const name = window.prompt("新しいカテゴリ名を入力してください")?.trim();
       if (!name) return;
-      try {
-        const existing = allProjectTasks.find((candidate) => candidate.title === name);
-        const parent = existing ?? (await api.createTask(projectId, { title: name }));
-        await quickUpdate(task, { parent_task_id: parent.id });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "カテゴリの作成に失敗しました");
-      }
+      await assignCategoryByName(task, name);
       return;
     }
     await quickUpdate(task, { parent_task_id: value ? Number(value) : null });
+  }
+
+  /** 名前でカテゴリを探し、無ければ作ってから割り当てる */
+  async function assignCategoryByName(task: Task, name: string) {
+    if (!projectId || !name) return;
+    try {
+      const existing = allProjectTasks.find((candidate) => candidate.title === name);
+      const parent = existing ?? (await api.createTask(projectId, { title: name }));
+      await quickUpdate(task, { parent_task_id: parent.id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "カテゴリの設定に失敗しました");
+    }
   }
 
   async function remove(task: Task) {
@@ -154,15 +179,20 @@ export default function TasksPage() {
           <h1 className="text-xl font-semibold">Task Management</h1>
           <p className="text-sm text-ink-500">{tasks.length} 件表示中</p>
         </div>
-        <button
-          className="btn-primary"
-          onClick={() => {
-            setEditing(null);
-            setShowForm(true);
-          }}
-        >
-          ＋ Task新規作成
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="btn-secondary" onClick={() => setShowSuggest(true)}>
+            ✦ カテゴリ自動分類
+          </button>
+          <button
+            className="btn-primary"
+            onClick={() => {
+              setEditing(null);
+              setShowForm(true);
+            }}
+          >
+            ＋ Task新規作成
+          </button>
+        </div>
       </header>
 
       <Card>
@@ -336,6 +366,11 @@ export default function TasksPage() {
                       onChange={(event) => void changeCategory(task, event.target.value)}
                     >
                       <option value="">（カテゴリなし）</option>
+                      {hints[task.id] && (
+                        <option value={`${SUGGESTED}${hints[task.id].suggested_category}`}>
+                          ✦ 提案: {hints[task.id].suggested_category}
+                        </option>
+                      )}
                       <option value={NEW_CATEGORY}>＋ 新しいカテゴリ…</option>
                       {(() => {
                         const blocked = descendantIds(task);
@@ -427,11 +462,14 @@ export default function TasksPage() {
                     </select>
                   </td>
                   <td className="td whitespace-nowrap text-xs tabular-nums">
-                    {formatFullDate(task.planned_start)}
+                    {formatFullDate(task.effective_start)}
                     <br />
                     <span className={task.is_overdue ? "text-rose-600" : ""}>
-                      {formatFullDate(task.planned_end)}
+                      {formatFullDate(task.effective_end)}
                     </span>
+                    {task.is_summary && !task.planned_start && task.effective_start && (
+                      <span className="ml-1 text-[10px] text-ink-300">集計</span>
+                    )}
                   </td>
                   <td className="td whitespace-nowrap text-xs tabular-nums text-ink-500">
                     {formatFullDate(task.actual_start)}
@@ -440,9 +478,12 @@ export default function TasksPage() {
                   </td>
                   <td className="td">
                     <div className="flex items-center gap-2">
-                      <ProgressBar value={task.progress} expected={task.expected_progress} />
+                      <ProgressBar
+                        value={task.effective_progress}
+                        expected={task.is_summary ? undefined : task.expected_progress}
+                      />
                       <span className="w-10 shrink-0 text-right text-xs tabular-nums">
-                        {task.progress.toFixed(0)}%
+                        {task.effective_progress.toFixed(0)}%
                       </span>
                     </div>
                     {task.progress_gap > 5 && (
@@ -492,6 +533,14 @@ export default function TasksPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {showSuggest && projectId && (
+        <CategorySuggestModal
+          projectId={projectId}
+          onClose={() => setShowSuggest(false)}
+          onApplied={() => void load()}
+        />
       )}
 
       {showForm && (

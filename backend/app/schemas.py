@@ -166,6 +166,10 @@ class TaskRead(ORMModel, TaskBase):
     path_titles: list[str] = Field(default_factory=list)  # ルート → 直近の親
     depth: int = 0
     child_count: int = 0
+    is_summary: bool = False
+    effective_progress: float = 0.0
+    effective_start: date | None = None
+    effective_end: date | None = None
     predecessor_task_ids: list[int] = Field(default_factory=list)
     successor_task_ids: list[int] = Field(default_factory=list)
     child_task_ids: list[int] = Field(default_factory=list)
@@ -372,6 +376,43 @@ class AIPMOResponse(BaseModel):
     delay_risks: list[TaskRisk] = Field(default_factory=list)
     delay_actions: list[Finding] = Field(default_factory=list)
     recommended_actions: list[Finding] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- Categorize
+class CategorySuggestion(BaseModel):
+    task_id: int
+    task_code: str | None = None
+    task_title: str
+    current_category: str | None = None
+    suggested_category: str
+    existing_category_id: int | None = None
+    confidence: float
+    reason: str
+    source: str = "rules"
+
+
+class CategorySuggestResponse(BaseModel):
+    project_id: int
+    llm_used: bool
+    llm_note: str | None = None
+    existing_categories: list[dict[str, Any]] = Field(default_factory=list)
+    suggestions: list[CategorySuggestion] = Field(default_factory=list)
+    unmatched_task_ids: list[int] = Field(default_factory=list)
+
+
+class CategoryAssignment(BaseModel):
+    task_id: int
+    category_name: str = Field(min_length=1, max_length=200)
+
+
+class CategoryApplyRequest(BaseModel):
+    assignments: list[CategoryAssignment]
+
+
+class CategoryApplyResponse(BaseModel):
+    updated_tasks: int
+    created_categories: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- Import

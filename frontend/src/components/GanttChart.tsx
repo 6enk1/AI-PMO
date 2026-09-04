@@ -35,7 +35,7 @@ export function GanttChart({
   const { start, days, months } = useMemo(() => {
     const stamps: number[] = [startOfToday()];
     tasks.forEach((task) => {
-      [task.planned_start, task.planned_end, task.actual_start, task.actual_end].forEach((value) => {
+      [task.effective_start, task.effective_end, task.actual_start, task.actual_end].forEach((value) => {
         const time = parse(value);
         if (time !== null) stamps.push(time);
       });
@@ -83,12 +83,14 @@ export function GanttChart({
             className="flex h-10 items-center gap-2 border-b border-slate-50 px-3 text-xs"
             title={[...task.path_titles, task.title].join(" / ")}
           >
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1" style={{ paddingLeft: Math.min(3, task.depth) * 10 }}>
               {task.category && (
                 <p className="truncate text-[10px] leading-3 text-ink-400">{task.category}</p>
               )}
               <button
-                className="block w-full truncate text-left font-medium leading-4 text-ink-800 hover:underline"
+                className={`block w-full truncate text-left leading-4 hover:underline ${
+                  task.is_summary ? "font-semibold text-ink-900" : "font-medium text-ink-800"
+                }`}
                 onClick={() => onSelect?.(task)}
               >
                 {task.title}
@@ -157,8 +159,8 @@ export function GanttChart({
               })}
 
             {tasks.map((task) => {
-              const plannedStart = parse(task.planned_start);
-              const plannedEnd = parse(task.planned_end);
+              const plannedStart = parse(task.effective_start);
+              const plannedEnd = parse(task.effective_end);
               const actualStart = parse(task.actual_start);
               const actualEnd = parse(task.actual_end);
               const barStart = plannedStart ?? plannedEnd;
@@ -178,35 +180,40 @@ export function GanttChart({
                     )
                   : 0;
 
-              const barColor = task.is_overdue
+              const progress = task.effective_progress;
+              const barColor = task.is_summary
+                ? "bg-ink-100 border-ink-400"
+                : task.is_overdue
                 ? "bg-rose-200 border-rose-400"
                 : task.status === "done"
                   ? "bg-emerald-100 border-emerald-300"
                   : task.is_critical_path
                     ? "bg-indigo-100 border-indigo-400"
                     : "bg-sky-100 border-sky-300";
-              const fillColor = task.is_overdue
-                ? "bg-rose-500"
-                : task.status === "done"
-                  ? "bg-emerald-500"
-                  : "bg-sky-500";
+              const fillColor = task.is_summary
+                ? "bg-ink-500"
+                : task.is_overdue
+                  ? "bg-rose-500"
+                  : task.status === "done"
+                    ? "bg-emerald-500"
+                    : "bg-sky-500";
 
               return (
                 <div key={task.id} className="relative h-10 border-b border-slate-50">
                   {barWidth > 0 && (
                     <div
-                      className={`absolute top-2 h-4 rounded border ${barColor}`}
+                      className={`absolute ${task.is_summary ? "top-3 h-2" : "top-2 h-4"} rounded border ${barColor}`}
                       style={{ left, width: barWidth }}
-                      title={`${task.title}\n予定 ${formatFullDate(task.planned_start)} 〜 ${formatFullDate(
-                        task.planned_end,
-                      )}\n進捗 ${task.progress}% / Risk ${task.risk_score}`}
+                      title={`${task.title}\n予定 ${formatFullDate(task.effective_start)} 〜 ${formatFullDate(
+                        task.effective_end,
+                      )}\n進捗 ${progress}% / Risk ${task.risk_score}${task.is_summary ? "（子Taskの集計）" : ""}`}
                     >
                       <div
                         className={`h-full rounded-l ${fillColor}`}
-                        style={{ width: `${Math.min(100, task.progress)}%` }}
+                        style={{ width: `${Math.min(100, progress)}%` }}
                       />
                       <span className="absolute -right-12 top-0 text-[10px] leading-4 text-ink-400">
-                        {task.progress.toFixed(0)}%
+                        {progress.toFixed(0)}%
                       </span>
                     </div>
                   )}

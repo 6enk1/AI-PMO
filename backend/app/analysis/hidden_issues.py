@@ -316,7 +316,9 @@ def detect_progress_inconsistency(s: ProjectSnapshot) -> list[RawFinding]:
         if v.status == "in_progress" and v.progress == 0:
             problems.append(Evidence("進捗0%", "Statusは進行中だが進捗率0%"))
         rollup = s.child_progress_rollup(v)
-        if rollup is not None and abs(rollup - v.progress) >= 20:
+        # 子より親の進捗が高い＝過大申告のみを指摘する。親が未入力（0%）の場合は
+        # 子の集計値が表示に使われるため、不整合ではない。
+        if rollup is not None and v.progress - rollup >= 20:
             problems.append(
                 Evidence("子Taskとの乖離", f"子Task加重平均 {rollup:.0f}% に対し親Task {v.progress:.0f}%")
             )

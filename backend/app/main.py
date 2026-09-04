@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import init_db
-from .routers import ai_pmo, imports, issues, people, projects, tasks
+from .routers import ai_pmo, categorize, imports, issues, people, projects, tasks
 
 logging.basicConfig(level=logging.INFO)
 
@@ -34,6 +34,7 @@ app.include_router(tasks.router)
 app.include_router(people.router)
 app.include_router(issues.router)
 app.include_router(ai_pmo.router)
+app.include_router(categorize.router)
 app.include_router(imports.router)
 
 

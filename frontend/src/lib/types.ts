@@ -31,6 +31,10 @@ export interface Task {
   path_titles: string[];
   depth: number;
   child_count: number;
+  is_summary: boolean;
+  effective_progress: number;
+  effective_start: string | null;
+  effective_end: string | null;
   planned_start: string | null;
   planned_end: string | null;
   actual_start: string | null;
@@ -250,4 +254,31 @@ export interface ImportResult {
   created_milestones: number;
   skipped_rows: number;
   warnings: string[];
+}
+
+export interface CategorySuggestion {
+  task_id: number;
+  task_code: string | null;
+  task_title: string;
+  current_category: string | null;
+  suggested_category: string;
+  existing_category_id: number | null;
+  confidence: number;
+  reason: string;
+  source: string;
+}
+
+export interface CategorySuggestResponse {
+  project_id: number;
+  llm_used: boolean;
+  llm_note: string | null;
+  existing_categories: { task_id: number; title: string }[];
+  suggestions: CategorySuggestion[];
+  unmatched_task_ids: number[];
+}
+
+export interface CategoryApplyResult {
+  updated_tasks: number;
+  created_categories: string[];
+  skipped: string[];
 }

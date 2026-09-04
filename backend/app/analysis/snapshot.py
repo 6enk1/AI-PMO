@@ -46,6 +46,11 @@ class TaskView:
     risk_score: float = 0.0
     risk_level: str = "low"
 
+    # 子を持つTask（カテゴリ/サマリ）は、子の集計値を表示に使う
+    rollup_progress: float | None = None
+    rollup_start: date | None = None
+    rollup_end: date | None = None
+
     # -- basic identity -----------------------------------------------------
     @property
     def id(self) -> int:
@@ -99,6 +104,25 @@ class TaskView:
     @property
     def is_leaf(self) -> bool:
         return not self.child_ids
+
+    @property
+    def is_summary(self) -> bool:
+        return bool(self.child_ids)
+
+    @property
+    def effective_progress(self) -> float:
+        """表示用の進捗。サマリTaskは子の加重平均を使う。"""
+        if self.is_summary and self.rollup_progress is not None and self.progress == 0:
+            return self.rollup_progress
+        return self.progress
+
+    @property
+    def effective_start(self) -> date | None:
+        return self.planned_start or (self.rollup_start if self.is_summary else None)
+
+    @property
+    def effective_end(self) -> date | None:
+        return self.planned_end or (self.rollup_end if self.is_summary else None)
 
     @property
     def is_overdue(self) -> bool:
@@ -233,6 +257,7 @@ class ProjectSnapshot:
         self._link_graph()
         self._link_issues()
         self._compute_schedule()
+        self._compute_rollups()
         self._compute_loads()
         self._compute_risks()
         self._finalise_loads()
@@ -246,6 +271,30 @@ class ProjectSnapshot:
             parent_id = view.task.parent_task_id
             if parent_id and parent_id in self.views:
                 self.views[parent_id].child_ids.append(view.id)
+
+    def _compute_rollups(self) -> None:
+        """Roll dates and progress up from the leaves to the summary tasks."""
+
+        def walk(view: TaskView, depth: int = 0) -> None:
+            if depth > 20 or not view.child_ids:  # depth guard for broken links
+                return
+            children = [self.views[c] for c in view.child_ids]
+            for child in children:
+                walk(child, depth + 1)
+            starts = [c.effective_start for c in children if c.effective_start]
+            ends = [c.effective_end for c in children if c.effective_end]
+            view.rollup_start = min(starts) if starts else None
+            view.rollup_end = max(ends) if ends else None
+            weights = [max(1, c.duration_days) for c in children]
+            total = sum(weights)
+            if total:
+                view.rollup_progress = round(
+                    sum(c.effective_progress * w for c, w in zip(children, weights)) / total, 1
+                )
+
+        roots = [v for v in self.views.values() if not v.task.parent_task_id]
+        for root in roots:
+            walk(root)
 
     def _link_issues(self) -> None:
         for issue in self.issues:
@@ -453,15 +502,8 @@ class ProjectSnapshot:
         return person.name if person else None
 
     def child_progress_rollup(self, view: TaskView) -> float | None:
-        """Duration weighted progress of the direct children of a summary task."""
-        if not view.child_ids:
-            return None
-        children = [self.views[c] for c in view.child_ids]
-        weights = [max(1, c.duration_days) for c in children]
-        total = sum(weights)
-        if not total:
-            return None
-        return round(sum(c.progress * w for c, w in zip(children, weights)) / total, 1)
+        """Duration weighted progress of the children of a summary task."""
+        return view.rollup_progress
 
     def average_progress(self) -> float:
         leaves = [v for v in self.leaf_views() if not v.is_cancelled]
