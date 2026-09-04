@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from .analysis.health import build_focus_items, compute_health
 from .analysis.hidden_issues import detect_hidden_issues
 from .analysis.risk import impact_statement, risk_reasons
 from .analysis.snapshot import ProjectSnapshot, TaskView
-from .models import AIRiskFinding, Issue, Milestone
+from .models import AIRiskFinding, Issue, Milestone, utcnow
 
 
 def task_to_read(view: TaskView, snapshot: ProjectSnapshot) -> schemas.TaskRead:
@@ -294,7 +294,7 @@ def build_ai_pmo(
     return schemas.AIPMOResponse(
         project_id=snapshot.project.id,
         as_of=snapshot.today,
-        generated_at=datetime.utcnow(),
+        generated_at=utcnow(),
         llm_used=llm_used,
         llm_note=llm_note,
         hidden_issues=hidden_schema,

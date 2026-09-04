@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .. import schemas, services
 from ..analysis.snapshot import ProjectSnapshot, build_snapshot
 from ..database import get_db
-from ..models import Issue, Project, Task
+from ..models import Project
 from .deps import get_project, get_snapshot
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -119,13 +119,3 @@ def delete_milestone(
         raise HTTPException(status_code=404, detail="Milestone not found")
     db.delete(milestone)
     db.commit()
-
-
-@router.get("/{project_id}/stats")
-def project_stats(snapshot: ProjectSnapshot = Depends(get_snapshot), db: Session = Depends(get_db)) -> dict:
-    """Lightweight counters for the project switcher."""
-    return {
-        "tasks": db.scalar(select(Task.id).where(Task.project_id == snapshot.project.id)) is not None,
-        "task_count": len(snapshot.views),
-        "issue_count": db.query(Issue).filter(Issue.project_id == snapshot.project.id).count(),
-    }

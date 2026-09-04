@@ -19,3 +19,4 @@ frontend/.env.local
 # misc
 .DS_Store
 *.log
+frontend/tsconfig.tsbuildinfo

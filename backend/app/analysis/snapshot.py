@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import AIRiskFinding, Issue, Milestone, Person, Project, Task, TaskDependency
+from ..models import Issue, Milestone, Person, Project, Task, TaskDependency
 
 ACTIVE_STATUSES = ("not_started", "in_progress", "blocked")
 CLOSED_ISSUE_STATUSES = ("resolved", "closed")
@@ -498,7 +498,6 @@ def build_snapshot(db: Session, project_id: int, today: date | None = None) -> P
 
 
 __all__ = [
-    "AIRiskFinding",
     "ProjectSnapshot",
     "TaskView",
     "PersonLoad",

@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: ./backend
+    container_name: ai-pmo-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite:////data/ai_pmo.db
+      UPLOAD_DIR: /data/uploads
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      # Optional: without a key the app runs on the rule based reasoning engine.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    volumes:
+      - ai-pmo-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle at build time: this is the URL the
+        # browser (not the container) uses to reach the API.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    container_name: ai-pmo-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  ai-pmo-data:

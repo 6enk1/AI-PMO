@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-50 text-ink-900 antialiased;
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+  .card-header {
+    @apply flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3;
+  }
+  .card-title {
+    @apply text-sm font-semibold text-ink-900;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-ink-900 text-white hover:bg-ink-700;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-ink-700 hover:bg-slate-50;
+  }
+  .btn-danger {
+    @apply btn border border-rose-200 bg-white text-rose-600 hover:bg-rose-50;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none
+      focus:border-ink-500 focus:ring-2 focus:ring-ink-100;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-ink-600;
+  }
+  .th {
+    @apply whitespace-nowrap px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink-500;
+  }
+  .td {
+    @apply px-3 py-2 text-sm text-ink-800;
+  }
+}
