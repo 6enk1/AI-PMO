@@ -305,13 +305,16 @@ def detect_green_but_issue_heavy(s: ProjectSnapshot) -> list[RawFinding]:
 def detect_progress_inconsistency(s: ProjectSnapshot) -> list[RawFinding]:
     """進捗率と実態（Status/実績日/子Task）の不整合。"""
     out = []
+    # 実績日を1件も記録していないプロジェクトで「実績開始日が未入力」を全Taskに
+    # 出しても意味がない（WBSにその列が無いだけ）。運用している場合だけ指摘する。
+    tracks_actuals = any(v.task.actual_start for v in s.task_views())
     for v in s.active_views():
         problems: list[Evidence] = []
         if v.progress >= 100 and v.status != "done":
             problems.append(Evidence("進捗100%", f"進捗100%だがStatusは {v.status}"))
         if v.task.actual_end and v.status != "done":
             problems.append(Evidence("実績終了日あり", f"実績終了日 {v.task.actual_end} が入力済みだがStatusは {v.status}"))
-        if v.progress > 0 and v.task.actual_start is None:
+        if tracks_actuals and v.progress > 0 and v.task.actual_start is None:
             problems.append(Evidence("実績開始日なし", f"進捗 {v.progress:.0f}% だが実績開始日が未入力"))
         if v.status == "in_progress" and v.progress == 0:
             problems.append(Evidence("進捗0%", "Statusは進行中だが進捗率0%"))

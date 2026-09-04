@@ -155,3 +155,17 @@ def test_findings_are_deduplicated_and_sorted_by_severity(db, project, factory):
     ranks = {"critical": 3, "high": 2, "medium": 1, "low": 0}
     severities = [ranks[f.severity] for f in findings]
     assert severities == sorted(severities, reverse=True)
+
+
+def test_missing_actual_start_is_only_flagged_when_the_project_tracks_actuals(db, project, factory):
+    """実績日の列が無いWBSでは、全Taskに『実績開始日なし』を出さない。"""
+    person = factory.person("Alice")
+    factory.task("実績日なしで進行中", owner_id=person.id, planned_start=day(-5), planned_end=day(10),
+                 status="in_progress", progress=40)
+    assert "progress_inconsistency" not in types_of(detect(db, project))
+
+    # 1件でも実績開始日が入っていれば、入力漏れとして指摘する
+    factory.task("実績日あり", owner_id=person.id, planned_start=day(-5), planned_end=day(10),
+                 status="in_progress", progress=30, actual_start=day(-5))
+    findings = [f for f in detect(db, project) if f.finding_type == "progress_inconsistency"]
+    assert findings and any("実績開始日" in e.label for e in findings[0].evidence)
