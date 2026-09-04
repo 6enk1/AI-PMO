@@ -14,6 +14,8 @@ import {
 } from "@/lib/format";
 import type { Person, Task, TaskStatus } from "@/lib/types";
 
+const NEW_CATEGORY = "__new__";
+
 const SORTS = [
   { value: "planned_end", label: "終了予定日" },
   { value: "planned_start", label: "開始予定日" },
@@ -98,6 +100,39 @@ export default function TasksPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "更新に失敗しました");
     }
+  }
+
+  /** 自分自身と子孫は親に選べない（循環防止） */
+  function descendantIds(task: Task): Set<number> {
+    const ids = new Set<number>([task.id]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const candidate of allProjectTasks) {
+        if (candidate.parent_task_id && ids.has(candidate.parent_task_id) && !ids.has(candidate.id)) {
+          ids.add(candidate.id);
+          added = true;
+        }
+      }
+    }
+    return ids;
+  }
+
+  async function changeCategory(task: Task, value: string) {
+    if (!projectId) return;
+    if (value === NEW_CATEGORY) {
+      const name = window.prompt("新しいカテゴリ名を入力してください")?.trim();
+      if (!name) return;
+      try {
+        const existing = allProjectTasks.find((candidate) => candidate.title === name);
+        const parent = existing ?? (await api.createTask(projectId, { title: name }));
+        await quickUpdate(task, { parent_task_id: parent.id });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "カテゴリの作成に失敗しました");
+      }
+      return;
+    }
+    await quickUpdate(task, { parent_task_id: value ? Number(value) : null });
   }
 
   async function remove(task: Task) {
@@ -272,7 +307,7 @@ export default function TasksPage() {
         <EmptyState title="該当するTaskがありません" hint="条件を変更するか、新規作成してください。" />
       ) : (
         <div className="card overflow-x-auto">
-          <table className="w-full min-w-[1100px]">
+          <table className="w-full min-w-[1240px]">
             <thead className="bg-slate-50">
               <tr>
                 <th className="th">ID</th>
@@ -293,33 +328,59 @@ export default function TasksPage() {
               {tasks.map((task) => (
                 <tr key={task.id} className="border-t border-slate-100 hover:bg-slate-50/60">
                   <td className="td whitespace-nowrap text-xs text-ink-500">{task.code}</td>
-                  <td className="td w-[150px] max-w-[150px]">
-                    {task.path_titles.length > 0 ? (
-                      <button
-                        className="truncate text-left text-xs text-ink-600 hover:underline"
-                        title={task.path_titles.join(" / ")}
-                        onClick={() =>
-                          setFilters({ ...filters, category_task_id: String(task.parent_task_id) })
-                        }
-                      >
-                        <span className="block truncate font-medium">{task.category}</span>
-                        {task.path_titles.length > 1 && (
-                          <span className="block truncate text-[11px] text-ink-400">
-                            {task.path_titles.slice(1).join(" / ")}
-                          </span>
-                        )}
-                      </button>
-                    ) : task.child_count > 0 ? (
-                      <button
-                        onClick={() => setFilters({ ...filters, category_task_id: String(task.id) })}
-                      >
-                        <Badge className="whitespace-nowrap border-indigo-200 bg-indigo-50 text-indigo-700">
-                          カテゴリ 子{task.child_count}
-                        </Badge>
-                      </button>
-                    ) : (
-                      <span className="text-xs text-ink-300">—</span>
-                    )}
+                  <td className="td w-[200px] max-w-[200px]">
+                    <select
+                      className="w-full truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-700 hover:border-slate-300"
+                      title={[...task.path_titles, ""].join(" / ")}
+                      value={task.parent_task_id ?? ""}
+                      onChange={(event) => void changeCategory(task, event.target.value)}
+                    >
+                      <option value="">（カテゴリなし）</option>
+                      <option value={NEW_CATEGORY}>＋ 新しいカテゴリ…</option>
+                      {(() => {
+                        const blocked = descendantIds(task);
+                        const options = allProjectTasks.filter((c) => !blocked.has(c.id));
+                        return (
+                          <>
+                            <optgroup label="カテゴリ">
+                              {options
+                                .filter((c) => c.child_task_ids.length > 0)
+                                .map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {[...c.path_titles, c.title].join(" / ")}
+                                  </option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="その他のTask">
+                              {options
+                                .filter((c) => c.child_task_ids.length === 0)
+                                .map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {[...c.path_titles, c.title].join(" / ")}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          </>
+                        );
+                      })()}
+                    </select>
+                    <div className="mt-0.5 flex items-center gap-1">
+                      {task.child_count > 0 && (
+                        <button
+                          onClick={() => setFilters({ ...filters, category_task_id: String(task.id) })}
+                          title="このカテゴリで絞り込む"
+                        >
+                          <Badge className="whitespace-nowrap border-indigo-200 bg-indigo-50 text-indigo-700">
+                            カテゴリ 子{task.child_count}
+                          </Badge>
+                        </button>
+                      )}
+                      {task.path_titles.length > 1 && (
+                        <span className="truncate text-[11px] text-ink-400" title={task.path_titles.join(" / ")}>
+                          {task.category}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="td min-w-[220px]">
                     <button
