@@ -446,6 +446,9 @@ class ImportAnalyzeResponse(BaseModel):
     known_fields: list[dict[str, str]] = Field(default_factory=list)
 
 
+MatchBy = Literal["auto", "code", "title", "none"]
+
+
 class ImportCommitRequest(BaseModel):
     token: str
     sheet: str | None = None
@@ -455,15 +458,48 @@ class ImportCommitRequest(BaseModel):
     new_project_name: str | None = None
     create_missing_people: bool = True
     create_issues: bool = True
+    match_by: MatchBy = "auto"
+    """既存Taskとの突き合わせ方法。auto=Task ID→タスク名の順、none=常に追加。"""
 
 
 class ImportCommitResponse(BaseModel):
     project_id: int
     project_name: str
+    match_by: str = "none"
     created_tasks: int
+    updated_tasks: int = 0
+    unchanged_tasks: int = 0
     created_people: int
     created_issues: int
     created_dependencies: int
     created_milestones: int
     skipped_rows: int
     warnings: list[str] = Field(default_factory=list)
+
+
+class ImportRowChange(BaseModel):
+    field: str
+    label: str
+    before: str | None = None
+    after: str | None = None
+
+
+class ImportRowPlan(BaseModel):
+    row_index: int
+    title: str
+    code: str | None = None
+    action: Literal["create", "update", "unchanged", "skip"]
+    matched_task_id: int | None = None
+    matched_task_title: str | None = None
+    matched_by: str | None = None
+    changes: list[ImportRowChange] = Field(default_factory=list)
+
+
+class ImportPlanResponse(BaseModel):
+    match_by: str
+    create_count: int
+    update_count: int
+    unchanged_count: int
+    skipped_rows: int
+    rows: list[ImportRowPlan] = Field(default_factory=list)
+    missing_in_file: list[dict[str, Any]] = Field(default_factory=list)

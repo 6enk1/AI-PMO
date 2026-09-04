@@ -2,6 +2,7 @@ import type {
   AIPMOResponse,
   CategoryApplyResult,
   CategorySuggestResponse,
+  ImportPlan,
   Dashboard,
   ImportAnalyze,
   ImportResult,
@@ -130,6 +131,8 @@ export const api = {
   },
   previewImport: (token: string, sheet?: string, headerRow?: number) =>
     request<ImportAnalyze>(`/api/imports/${token}/preview${query({ sheet, header_row: headerRow })}`),
+  planImport: (payload: Record<string, unknown>) =>
+    request<ImportPlan>("/api/imports/plan", { method: "POST", body: JSON.stringify(payload) }),
   commitImport: (payload: Record<string, unknown>) =>
     request<ImportResult>("/api/imports/commit", { method: "POST", body: JSON.stringify(payload) }),
 };

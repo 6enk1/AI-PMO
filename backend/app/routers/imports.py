@@ -46,6 +46,17 @@ def preview(
         raise HTTPException(status_code=400, detail=f"ファイルを解析できませんでした: {exc}") from exc
 
 
+@router.post("/plan", response_model=schemas.ImportPlanResponse)
+def plan(payload: schemas.ImportCommitRequest, db: Session = Depends(get_db)) -> schemas.ImportPlanResponse:
+    """取り込み前の差分確認（更新/追加/変更なしの件数と変更内容）。"""
+    try:
+        return schemas.ImportPlanResponse(**excel.plan_import(db, payload))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/commit", response_model=schemas.ImportCommitResponse)
 def commit(payload: schemas.ImportCommitRequest, db: Session = Depends(get_db)) -> schemas.ImportCommitResponse:
     try:

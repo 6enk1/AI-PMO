@@ -247,7 +247,10 @@ export interface ImportAnalyze {
 export interface ImportResult {
   project_id: number;
   project_name: string;
+  match_by: string;
   created_tasks: number;
+  updated_tasks: number;
+  unchanged_tasks: number;
   created_people: number;
   created_issues: number;
   created_dependencies: number;
@@ -281,4 +284,34 @@ export interface CategoryApplyResult {
   updated_tasks: number;
   created_categories: string[];
   skipped: string[];
+}
+
+export type MatchBy = "auto" | "code" | "title" | "none";
+
+export interface ImportRowChange {
+  field: string;
+  label: string;
+  before: string | null;
+  after: string | null;
+}
+
+export interface ImportRowPlan {
+  row_index: number;
+  title: string;
+  code: string | null;
+  action: "create" | "update" | "unchanged" | "skip";
+  matched_task_id: number | null;
+  matched_task_title: string | null;
+  matched_by: string | null;
+  changes: ImportRowChange[];
+}
+
+export interface ImportPlan {
+  match_by: string;
+  create_count: number;
+  update_count: number;
+  unchanged_count: number;
+  skipped_rows: number;
+  rows: ImportRowPlan[];
+  missing_in_file: { task_id: number; title: string }[];
 }

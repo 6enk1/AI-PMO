@@ -6,7 +6,7 @@ import { useProjects } from "@/components/ProjectProvider";
 import { Badge, Card, ErrorBanner, Field, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { STATUS_LABELS } from "@/lib/format";
-import type { ImportAnalyze, ImportResult, TaskStatus } from "@/lib/types";
+import type { ImportAnalyze, ImportPlan, ImportResult, MatchBy, TaskStatus } from "@/lib/types";
 
 const REQUIRED_FIELD = "title";
 
@@ -18,6 +18,8 @@ export default function ImportPage() {
   const [projectName, setProjectName] = useState("");
   const [existingProjectId, setExistingProjectId] = useState("");
   const [createIssues, setCreateIssues] = useState(true);
+  const [matchBy, setMatchBy] = useState<MatchBy>("auto");
+  const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -29,6 +31,7 @@ export default function ImportPage() {
     try {
       const analyzed = await api.analyzeImport(file);
       setAnalysis(analyzed);
+      setPlan(null);
       setMapping(analyzed.mapping);
       setProjectName(file.name.replace(/\.[^.]+$/, ""));
     } catch (err) {
@@ -53,6 +56,38 @@ export default function ImportPage() {
     }
   }
 
+  function importPayload() {
+    if (!analysis) return null;
+    return {
+      token: analysis.token,
+      sheet: analysis.selected_sheet,
+      header_row: analysis.header_row,
+      mapping,
+      project_id: target === "existing" && existingProjectId ? Number(existingProjectId) : null,
+      new_project_name: target === "new" ? projectName || analysis.filename : null,
+      create_issues: createIssues,
+      match_by: target === "existing" ? matchBy : "none",
+    };
+  }
+
+  async function checkDiff() {
+    const payload = importPayload();
+    if (!payload) return;
+    if (!mapping[REQUIRED_FIELD]) {
+      setError("タスク名の列を指定してください。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setPlan(await api.planImport(payload));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "差分を取得できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function commit() {
     if (!analysis) return;
     if (!mapping[REQUIRED_FIELD]) {
@@ -62,16 +97,9 @@ export default function ImportPage() {
     setBusy(true);
     setError(null);
     try {
-      const committed = await api.commitImport({
-        token: analysis.token,
-        sheet: analysis.selected_sheet,
-        header_row: analysis.header_row,
-        mapping,
-        project_id: target === "existing" && existingProjectId ? Number(existingProjectId) : null,
-        new_project_name: target === "new" ? projectName || analysis.filename : null,
-        create_issues: createIssues,
-      });
+      const committed = await api.commitImport(importPayload()!);
       setResult(committed);
+      setPlan(null);
       await reloadProjects();
       selectProject(committed.project_id);
     } catch (err) {
@@ -278,6 +306,23 @@ export default function ImportPage() {
                   </select>
                 </Field>
               )}
+              {target === "existing" && (
+                <Field label="既存Taskとの突き合わせ">
+                  <select
+                    className="input"
+                    value={matchBy}
+                    onChange={(event) => {
+                      setMatchBy(event.target.value as MatchBy);
+                      setPlan(null);
+                    }}
+                  >
+                    <option value="auto">自動（Task ID → タスク名）</option>
+                    <option value="code">Task ID のみ</option>
+                    <option value="title">タスク名のみ</option>
+                    <option value="none">突き合わせない（すべて追加）</option>
+                  </select>
+                </Field>
+              )}
               <label className="flex items-center gap-2 pb-2 text-xs text-ink-600">
                 <input
                   type="checkbox"
@@ -286,10 +331,106 @@ export default function ImportPage() {
                 />
                 課題列からIssueを自動作成する
               </label>
+              {target === "existing" && (
+                <button className="btn-secondary mb-0.5" onClick={() => void checkDiff()} disabled={busy}>
+                  差分を確認
+                </button>
+              )}
               <button className="btn-primary mb-0.5" onClick={() => void commit()} disabled={busy}>
                 Importを実行
               </button>
             </div>
+
+            {target === "existing" && (
+              <p className="mt-3 text-xs text-ink-500">
+                既存Taskと同じ Task ID / タスク名の行は<strong>更新</strong>され、無い行だけが追加されます。
+                空欄のセルは既存の値を上書きしません。
+              </p>
+            )}
+
+            {plan && (
+              <div className="mt-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-sky-200 bg-sky-50 text-sky-800">更新 {plan.update_count} 件</Badge>
+                  <Badge className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                    追加 {plan.create_count} 件
+                  </Badge>
+                  <Badge className="border-slate-200 bg-slate-50 text-ink-600">
+                    変更なし {plan.unchanged_count} 件
+                  </Badge>
+                  {plan.skipped_rows > 0 && (
+                    <Badge className="border-amber-200 bg-amber-50 text-amber-800">
+                      スキップ {plan.skipped_rows} 行
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-slate-50">
+                      <tr>
+                        <th className="th">操作</th>
+                        <th className="th">タスク</th>
+                        <th className="th">変更内容</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {plan.rows
+                        .filter((row) => row.action !== "unchanged")
+                        .map((row) => (
+                          <tr key={row.row_index} className="border-t border-slate-100">
+                            <td className="td">
+                              <Badge
+                                className={
+                                  row.action === "create"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : "border-sky-200 bg-sky-50 text-sky-800"
+                                }
+                              >
+                                {row.action === "create" ? "追加" : "更新"}
+                              </Badge>
+                            </td>
+                            <td className="td text-sm">
+                              {row.code && <span className="mr-2 text-xs text-ink-400">{row.code}</span>}
+                              {row.title}
+                              {row.matched_by && (
+                                <span className="ml-2 text-[11px] text-ink-400">
+                                  （{row.matched_by === "code" ? "Task ID" : "タスク名"}で一致）
+                                </span>
+                              )}
+                            </td>
+                            <td className="td text-xs text-ink-600">
+                              {row.changes.length === 0
+                                ? "新規登録"
+                                : row.changes.map((change) => (
+                                    <span key={change.field} className="mr-3 whitespace-nowrap">
+                                      {change.label}: <span className="text-ink-400">{change.before ?? "—"}</span>
+                                      {" → "}
+                                      <span className="font-medium">{change.after ?? "—"}</span>
+                                    </span>
+                                  ))}
+                            </td>
+                          </tr>
+                        ))}
+                      {plan.update_count + plan.create_count === 0 && (
+                        <tr>
+                          <td className="td text-sm text-ink-500" colSpan={3}>
+                            差分はありません。
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {plan.missing_in_file.length > 0 && (
+                  <p className="text-xs text-ink-500">
+                    ファイルに無い既存Task（削除はされません）: {" "}
+                    {plan.missing_in_file.map((task) => task.title).join("、")}
+                  </p>
+                )}
+              </div>
+            )}
           </Card>
         </>
       )}
@@ -297,7 +438,8 @@ export default function ImportPage() {
       {result && (
         <Card title="Import完了">
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Summary label="Task" value={result.created_tasks} />
+            <Summary label="追加Task" value={result.created_tasks} />
+            <Summary label="更新Task" value={result.updated_tasks} />
             <Summary label="担当者" value={result.created_people} />
             <Summary label="Issue" value={result.created_issues} />
             <Summary label="依存関係" value={result.created_dependencies} />

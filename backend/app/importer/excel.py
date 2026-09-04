@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -134,7 +135,14 @@ def _cell(row: pd.Series, mapping: dict[str, str | None], field: str) -> Any:
 
 
 def mapped_row(row: pd.Series, mapping: dict[str, str | None]) -> dict[str, Any]:
+    """Parse one spreadsheet row.
+
+    Empty cells stay ``None`` so that a sync import never wipes a value that the
+    spreadsheet simply does not carry.
+    """
     progress = vp.parse_progress(_cell(row, mapping, "progress"))
+    status_cell = vp.clean_str(_cell(row, mapping, "status"))
+    priority_cell = vp.clean_str(_cell(row, mapping, "priority"))
     return {
         "code": vp.clean_str(_cell(row, mapping, "code"), 40),
         "title": vp.clean_str(_cell(row, mapping, "title"), 300),
@@ -145,9 +153,9 @@ def mapped_row(row: pd.Series, mapping: dict[str, str | None]) -> dict[str, Any]
         "planned_end": vp.parse_date(_cell(row, mapping, "planned_end")),
         "actual_start": vp.parse_date(_cell(row, mapping, "actual_start")),
         "actual_end": vp.parse_date(_cell(row, mapping, "actual_end")),
-        "progress": progress if progress is not None else 0.0,
-        "status": vp.parse_status(_cell(row, mapping, "status"), progress),
-        "priority": vp.parse_priority(_cell(row, mapping, "priority")),
+        "progress": progress,
+        "status": vp.parse_status(status_cell, progress) if status_cell else None,
+        "priority": vp.parse_priority(priority_cell) if priority_cell else None,
         "dependency": vp.split_references(_cell(row, mapping, "dependency")),
         "issue": vp.clean_str(_cell(row, mapping, "issue"), 1000),
         "notes": vp.clean_str(_cell(row, mapping, "notes")),
@@ -183,6 +191,9 @@ def analyze_upload(
     preview_rows: list[dict[str, Any]] = []
     for _, row in frame.head(PREVIEW_ROWS).iterrows():
         parsed = mapped_row(row, mapping)
+        parsed["status"] = parsed["status"] or derive_status(parsed)
+        parsed["priority"] = parsed["priority"] or "medium"
+        parsed["progress"] = parsed["progress"] if parsed["progress"] is not None else 0.0
         parsed["planned_start"] = str(parsed["planned_start"]) if parsed["planned_start"] else None
         parsed["planned_end"] = str(parsed["planned_end"]) if parsed["planned_end"] else None
         parsed["actual_start"] = str(parsed["actual_start"]) if parsed["actual_start"] else None
@@ -225,6 +236,227 @@ def analyze_upload(
     }
 
 
+# --------------------------------------------------------------------------- sync
+SYNCED_FIELDS: tuple[tuple[str, str], ...] = (
+    ("title", "タスク名"),
+    ("description", "詳細"),
+    ("planned_start", "開始予定日"),
+    ("planned_end", "終了予定日"),
+    ("actual_start", "実績開始日"),
+    ("actual_end", "実績終了日"),
+    ("progress", "進捗率"),
+    ("status", "Status"),
+    ("priority", "Priority"),
+    ("estimated_hours", "工数"),
+    ("notes", "備考"),
+)
+
+
+def derive_status(parsed: dict[str, Any]) -> str:
+    progress = parsed.get("progress")
+    if progress is None:
+        return "not_started"
+    if progress >= 100:
+        return "done"
+    return "in_progress" if progress > 0 else "not_started"
+
+
+@dataclass
+class RowChange:
+    field: str
+    label: str
+    before: Any
+    after: Any
+
+
+@dataclass
+class RowPlan:
+    row_index: int
+    title: str
+    code: str | None
+    action: str  # create | update | unchanged | skip
+    matched_task_id: int | None = None
+    matched_task_title: str | None = None
+    matched_by: str | None = None
+    changes: list[RowChange] = field(default_factory=list)
+
+
+def _index_tasks(tasks: list[Task]) -> tuple[dict[str, Task], dict[str, Task]]:
+    by_code: dict[str, Task] = {}
+    by_title: dict[str, Task] = {}
+    for task in tasks:
+        if task.code:
+            by_code.setdefault(vp.normalize_text(task.code), task)
+        by_title.setdefault(vp.normalize_text(task.title), task)
+    return by_code, by_title
+
+
+def _match_task(
+    parsed: dict[str, Any],
+    by_code: dict[str, Task],
+    by_title: dict[str, Task],
+    match_by: str,
+) -> tuple[Task | None, str | None]:
+    """Find the existing task this row refers to."""
+    if match_by == "none":
+        return None, None
+    if match_by in ("auto", "code") and parsed.get("code"):
+        found = by_code.get(vp.normalize_text(parsed["code"]))
+        if found is not None:
+            return found, "code"
+        if match_by == "code":
+            return None, None
+    if match_by in ("auto", "title") and parsed.get("title"):
+        found = by_title.get(vp.normalize_text(parsed["title"]))
+        if found is not None:
+            return found, "title"
+    return None, None
+
+
+def _owner_name_of(task: Task, people: dict[int, Person]) -> str | None:
+    person = people.get(task.owner_id) if task.owner_id else None
+    return person.name if person else None
+
+
+def _diff_row(task: Task, parsed: dict[str, Any], owner_name: str | None) -> list[RowChange]:
+    """Non-empty incoming values that differ from what is stored."""
+    changes: list[RowChange] = []
+    for name, label in SYNCED_FIELDS:
+        incoming = parsed.get(name)
+        if incoming is None:
+            continue  # 空欄は「変更なし」として扱う
+        current = getattr(task, name)
+        if name == "progress":
+            if current is not None and abs(float(current) - float(incoming)) < 0.01:
+                continue
+        elif current == incoming:
+            continue
+        changes.append(RowChange(field=name, label=label, before=current, after=incoming))
+    incoming_owner = (parsed.get("owner") or "").strip() or None
+    if incoming_owner:
+        names = vp.parse_person_names(incoming_owner)
+        first = names[0] if names else None
+        if first and first != owner_name:
+            changes.append(RowChange(field="owner", label="担当者", before=owner_name, after=first))
+    if parsed.get("code") and vp.normalize_text(parsed["code"]) != vp.normalize_text(task.code or ""):
+        changes.append(RowChange(field="code", label="Task ID", before=task.code, after=parsed["code"]))
+    return changes
+
+
+def _parse_rows(frame: pd.DataFrame, mapping: dict[str, str | None]) -> tuple[list[dict[str, Any]], int]:
+    rows: list[dict[str, Any]] = []
+    skipped = 0
+    for index, (_, raw_row) in enumerate(frame.iterrows()):
+        parsed = mapped_row(raw_row, mapping)
+        if not parsed["title"]:
+            skipped += 1
+            continue
+        parsed["_row_index"] = index
+        rows.append(parsed)
+    return rows, skipped
+
+
+def _resolve_mapping(request, frame: pd.DataFrame) -> dict[str, str | None]:
+    mapping = {k: (v or None) for k, v in (request.mapping or {}).items()}
+    if not mapping:
+        mapping, _ = guess_mapping([str(c) for c in frame.columns])
+    if not mapping.get("title"):
+        raise ValueError("タスク名の列が指定されていません。")
+    return mapping
+
+
+def _default_match_by(request) -> str:
+    if request.match_by and request.match_by != "auto":
+        return request.match_by
+    # 新規プロジェクトなら突き合わせ相手がいないので常に追加
+    return "auto" if request.project_id else "none"
+
+
+def plan_import(db: Session, request) -> dict[str, Any]:
+    """Dry run: report what a sync import would create, update or leave alone."""
+    path, _ = resolve_upload(request.token)
+    frame, _, _ = load_frame(path, request.sheet, request.header_row)
+    mapping = _resolve_mapping(request, frame)
+    match_by = _default_match_by(request)
+
+    existing: list[Task] = []
+    people: dict[int, Person] = {}
+    if request.project_id:
+        project = db.get(Project, request.project_id)
+        if project is None:
+            raise ValueError(f"Project {request.project_id} は存在しません。")
+        existing = list(db.scalars(select(Task).where(Task.project_id == project.id)))
+        people = {
+            p.id: p for p in db.scalars(select(Person).where(Person.project_id == project.id))
+        }
+    by_code, by_title = _index_tasks(existing)
+
+    rows, skipped = _parse_rows(frame, mapping)
+    plans: list[RowPlan] = []
+    matched_ids: set[int] = set()
+    for parsed in rows:
+        task, matched_by = _match_task(parsed, by_code, by_title, match_by)
+        if task is None:
+            plans.append(
+                RowPlan(
+                    row_index=parsed["_row_index"],
+                    title=parsed["title"],
+                    code=parsed.get("code"),
+                    action="create",
+                )
+            )
+            continue
+        matched_ids.add(task.id)
+        changes = _diff_row(task, parsed, _owner_name_of(task, people))
+        plans.append(
+            RowPlan(
+                row_index=parsed["_row_index"],
+                title=parsed["title"],
+                code=parsed.get("code"),
+                action="update" if changes else "unchanged",
+                matched_task_id=task.id,
+                matched_task_title=task.title,
+                matched_by=matched_by,
+                changes=changes,
+            )
+        )
+
+    missing = [
+        {"task_id": t.id, "title": t.title}
+        for t in existing
+        if t.id not in matched_ids and match_by != "none"
+    ]
+    return {
+        "match_by": match_by,
+        "create_count": len([p for p in plans if p.action == "create"]),
+        "update_count": len([p for p in plans if p.action == "update"]),
+        "unchanged_count": len([p for p in plans if p.action == "unchanged"]),
+        "skipped_rows": skipped,
+        "rows": [
+            {
+                "row_index": p.row_index,
+                "title": p.title,
+                "code": p.code,
+                "action": p.action,
+                "matched_task_id": p.matched_task_id,
+                "matched_task_title": p.matched_task_title,
+                "matched_by": p.matched_by,
+                "changes": [
+                    {
+                        "field": c.field,
+                        "label": c.label,
+                        "before": str(c.before) if c.before is not None else None,
+                        "after": str(c.after) if c.after is not None else None,
+                    }
+                    for c in p.changes
+                ],
+            }
+            for p in plans
+        ],
+        "missing_in_file": missing[:50],
+    }
+
+
 # --------------------------------------------------------------------------- commit
 def _get_or_create_person(db: Session, project_id: int, name: str, cache: dict[str, Person]) -> Person:
     key = name.strip()
@@ -239,20 +471,12 @@ def _get_or_create_person(db: Session, project_id: int, name: str, cache: dict[s
     return person
 
 
-def next_task_code(db: Session, project_id: int) -> str:
-    count = len(list(db.scalars(select(Task.id).where(Task.project_id == project_id))))
-    return f"T-{count + 1:03d}"
-
-
 def commit_import(db: Session, request) -> dict[str, Any]:
-    """Create tasks / people / issues / dependencies from a mapped spreadsheet."""
+    """Create or update tasks / people / issues / dependencies from a spreadsheet."""
     path, filename = resolve_upload(request.token)
     frame, _, _ = load_frame(path, request.sheet, request.header_row)
-    mapping = {k: (v or None) for k, v in (request.mapping or {}).items()}
-    if not mapping:
-        mapping, _ = guess_mapping([str(c) for c in frame.columns])
-    if not mapping.get("title"):
-        raise ValueError("タスク名の列が指定されていません。")
+    mapping = _resolve_mapping(request, frame)
+    match_by = _default_match_by(request)
 
     warnings: list[str] = []
     project: Project | None = None
@@ -266,58 +490,81 @@ def commit_import(db: Session, request) -> dict[str, Any]:
         db.add(project)
         db.flush()
 
-    people_cache: dict[str, Person] = {}
-    created_people_before = len(list(db.scalars(select(Person.id).where(Person.project_id == project.id))))
+    existing_tasks = list(db.scalars(select(Task).where(Task.project_id == project.id)))
+    people_cache: dict[str, Person] = {
+        p.name: p for p in db.scalars(select(Person).where(Person.project_id == project.id))
+    }
+    people_before = len(people_cache)
+    by_code, by_title = _index_tasks(existing_tasks)
 
-    rows: list[dict[str, Any]] = []
-    skipped = 0
-    for _, raw_row in frame.iterrows():
-        parsed = mapped_row(raw_row, mapping)
-        if not parsed["title"]:
-            skipped += 1
-            continue
-        rows.append(parsed)
+    rows, skipped = _parse_rows(frame, mapping)
 
-    created_tasks: list[Task] = []
-    by_code: dict[str, Task] = {}
-    by_title: dict[str, Task] = {}
+    touched: list[Task] = []
+    created_tasks = 0
+    updated_tasks = 0
+    unchanged_tasks = 0
     parent_names: dict[int, str] = {}
     dependency_refs: list[tuple[Task, list[str]]] = []
     issue_rows: list[tuple[Task, str]] = []
     milestone_rows: list[dict[str, Any]] = []
+    sequence = len(existing_tasks)
 
-    sequence = len(list(db.scalars(select(Task.id).where(Task.project_id == project.id))))
     for parsed in rows:
-        owner = None
+        owner: Person | None = None
         names = vp.parse_person_names(parsed["owner"])
         if names and request.create_missing_people:
             owner = _get_or_create_person(db, project.id, names[0], people_cache)
             if len(names) > 1:
-                warnings.append(f"「{parsed['title']}」の担当者が複数指定されていたため、先頭の {names[0]} を主担当にしました。")
+                warnings.append(
+                    f"「{parsed['title']}」の担当者が複数指定されていたため、先頭の {names[0]} を主担当にしました。"
+                )
 
-        sequence += 1
-        task = Task(
-            project_id=project.id,
-            code=parsed["code"] or f"T-{sequence:03d}",
-            title=parsed["title"],
-            description=parsed["description"],
-            owner_id=owner.id if owner else None,
-            planned_start=parsed["planned_start"],
-            planned_end=parsed["planned_end"],
-            actual_start=parsed["actual_start"],
-            actual_end=parsed["actual_end"],
-            progress=parsed["progress"],
-            status=parsed["status"],
-            priority=parsed["priority"],
-            estimated_hours=parsed["estimated_hours"],
-            notes=parsed["notes"],
-        )
-        db.add(task)
-        db.flush()
-        created_tasks.append(task)
-        if task.code:
-            by_code[vp.normalize_text(task.code)] = task
-        by_title.setdefault(vp.normalize_text(task.title), task)
+        task, _matched_by = _match_task(parsed, by_code, by_title, match_by)
+        if task is None:
+            sequence += 1
+            task = Task(
+                project_id=project.id,
+                code=parsed["code"] or f"T-{sequence:03d}",
+                title=parsed["title"],
+                description=parsed["description"],
+                owner_id=owner.id if owner else None,
+                planned_start=parsed["planned_start"],
+                planned_end=parsed["planned_end"],
+                actual_start=parsed["actual_start"],
+                actual_end=parsed["actual_end"],
+                progress=parsed["progress"] if parsed["progress"] is not None else 0.0,
+                status=parsed["status"] or derive_status(parsed),
+                priority=parsed["priority"] or "medium",
+                estimated_hours=parsed["estimated_hours"],
+                notes=parsed["notes"],
+            )
+            db.add(task)
+            db.flush()
+            created_tasks += 1
+            if task.code:
+                by_code.setdefault(vp.normalize_text(task.code), task)
+            by_title.setdefault(vp.normalize_text(task.title), task)
+        else:
+            changed = False
+            for name_, _label in SYNCED_FIELDS:
+                incoming = parsed.get(name_)
+                if incoming is None:
+                    continue
+                if getattr(task, name_) != incoming:
+                    setattr(task, name_, incoming)
+                    changed = True
+            if owner is not None and task.owner_id != owner.id:
+                task.owner_id = owner.id
+                changed = True
+            if parsed["code"] and parsed["code"] != task.code:
+                task.code = parsed["code"]
+                changed = True
+            if changed:
+                updated_tasks += 1
+            else:
+                unchanged_tasks += 1
+
+        touched.append(task)
         if parsed["parent"]:
             parent_names[task.id] = parsed["parent"]
         if parsed["dependency"]:
@@ -328,26 +575,27 @@ def commit_import(db: Session, request) -> dict[str, Any]:
             milestone_rows.append({"title": parsed["title"], "due_date": parsed["planned_end"]})
 
     # ---- parents: explicit column first, then WBS numbering (1.2 -> 1)
-    for task in created_tasks:
-        name = parent_names.get(task.id)
+    for task in list(touched):
+        name_ = parent_names.get(task.id)
         parent = None
-        if name:
-            key = vp.normalize_text(name)
+        if name_:
+            key = vp.normalize_text(name_)
             parent = by_code.get(key) or by_title.get(key)
             if parent is None:
-                parent = Task(project_id=project.id, title=name[:300], status="not_started", progress=0.0)
+                parent = Task(project_id=project.id, title=name_[:300], status="not_started", progress=0.0)
                 db.add(parent)
                 db.flush()
-                created_tasks.append(parent)
+                created_tasks += 1
+                touched.append(parent)
                 by_title.setdefault(key, parent)
         elif task.code:
             parent_code = vp.wbs_parent_code(task.code)
             if parent_code:
                 parent = by_code.get(vp.normalize_text(parent_code))
-        if parent is not None and parent.id != task.id:
+        if parent is not None and parent.id != task.id and task.parent_task_id != parent.id:
             task.parent_task_id = parent.id
 
-    # ---- dependencies: match by code, then exact title, then partial title
+    # ---- dependencies: existing project tasks are valid targets too
     created_dependencies = 0
     for task, refs in dependency_refs:
         for ref in refs:
@@ -376,19 +624,27 @@ def commit_import(db: Session, request) -> dict[str, Any]:
             )
             created_dependencies += 1
 
-    # ---- issues written in the WBS itself
+    # ---- issues written in the WBS itself (再インポートでは重複させない)
     created_issues = 0
     issue_sequence = len(list(db.scalars(select(Issue.id).where(Issue.project_id == project.id))))
     for task, text in issue_rows:
+        title = text[:300]
+        duplicate = db.scalar(
+            select(Issue).where(Issue.project_id == project.id, Issue.task_id == task.id, Issue.title == title)
+        )
+        if duplicate is not None:
+            continue
         issue_sequence += 1
         db.add(
             Issue(
                 project_id=project.id,
                 code=f"I-{issue_sequence:03d}",
                 task_id=task.id,
-                title=text[:300],
+                title=title,
                 description=f"WBSの課題列から自動生成（Task: {task.title}）\n{text}",
-                severity="high" if task.status != "done" and task.planned_end and task.planned_end < date.today() else "medium",
+                severity="high"
+                if task.status != "done" and task.planned_end and task.planned_end < date.today()
+                else "medium",
                 owner_id=task.owner_id,
                 raised_on=date.today(),
                 status="open",
@@ -398,19 +654,18 @@ def commit_import(db: Session, request) -> dict[str, Any]:
 
     created_milestones = 0
     for row in milestone_rows:
-        db.add(
-            Milestone(
-                project_id=project.id,
-                title=row["title"][:300],
-                due_date=row["due_date"],
-                status="pending",
-            )
+        title = row["title"][:300]
+        duplicate = db.scalar(
+            select(Milestone).where(Milestone.project_id == project.id, Milestone.title == title)
         )
+        if duplicate is not None:
+            continue
+        db.add(Milestone(project_id=project.id, title=title, due_date=row["due_date"], status="pending"))
         created_milestones += 1
 
     # ---- project window from the imported plan
-    starts = [t.planned_start for t in created_tasks if t.planned_start]
-    ends = [t.planned_end for t in created_tasks if t.planned_end]
+    starts = [t.planned_start for t in touched if t.planned_start]
+    ends = [t.planned_end for t in touched if t.planned_end]
     if starts:
         project.start_date = min(starts) if not project.start_date else min(project.start_date, min(starts))
     if ends:
@@ -418,11 +673,16 @@ def commit_import(db: Session, request) -> dict[str, Any]:
 
     db.commit()
 
-    created_people = len(list(db.scalars(select(Person.id).where(Person.project_id == project.id)))) - created_people_before
+    created_people = (
+        len(list(db.scalars(select(Person.id).where(Person.project_id == project.id)))) - people_before
+    )
     return {
         "project_id": project.id,
         "project_name": project.name,
-        "created_tasks": len(created_tasks),
+        "match_by": match_by,
+        "created_tasks": created_tasks,
+        "updated_tasks": updated_tasks,
+        "unchanged_tasks": unchanged_tasks,
         "created_people": max(0, created_people),
         "created_issues": created_issues,
         "created_dependencies": created_dependencies,
