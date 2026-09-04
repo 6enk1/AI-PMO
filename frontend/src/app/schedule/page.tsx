@@ -6,6 +6,7 @@ import { useProjects } from "@/components/ProjectProvider";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { Badge, Card, EmptyState, ErrorBanner, Field, Loading, Modal, StatCard } from "@/components/ui";
 import { api } from "@/lib/api";
+import { orderAsTree } from "@/lib/tree";
 import { formatFullDate } from "@/lib/format";
 import type { Milestone, Person, Task } from "@/lib/types";
 
@@ -246,29 +247,4 @@ export default function SchedulePage() {
       )}
     </div>
   );
-}
-
-/** 親→子の順に並べ替える。フィルタで親が消えている場合はそのまま残す。 */
-function orderAsTree(tasks: Task[]): Task[] {
-  const present = new Set(tasks.map((task) => task.id));
-  const children = new Map<number | null, Task[]>();
-  tasks.forEach((task) => {
-    const key = task.parent_task_id && present.has(task.parent_task_id) ? task.parent_task_id : null;
-    children.set(key, [...(children.get(key) ?? []), task]);
-  });
-  const byStart = (a: Task, b: Task) => {
-    const left = a.effective_start ?? a.planned_end ?? "9999-12-31";
-    const right = b.effective_start ?? b.planned_end ?? "9999-12-31";
-    return left.localeCompare(right);
-  };
-  const ordered: Task[] = [];
-  const walk = (parentId: number | null, depth: number) => {
-    if (depth > 10) return;
-    (children.get(parentId) ?? []).sort(byStart).forEach((task) => {
-      ordered.push(task);
-      walk(task.id, depth + 1);
-    });
-  };
-  walk(null, 0);
-  return ordered.length === tasks.length ? ordered : tasks;
 }

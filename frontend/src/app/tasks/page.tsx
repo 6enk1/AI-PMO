@@ -6,6 +6,7 @@ import { CategorySuggestModal } from "@/components/CategorySuggestModal";
 import { TaskFormModal } from "@/components/TaskFormModal";
 import { Badge, Card, EmptyState, ErrorBanner, Loading, ProgressBar } from "@/components/ui";
 import { api } from "@/lib/api";
+import { orderAsTree } from "@/lib/tree";
 import {
   PRIORITY_LABELS,
   STATUS_LABELS,
@@ -19,6 +20,7 @@ const NEW_CATEGORY = "__new__";
 const SUGGESTED = "__suggested__:";
 
 const SORTS = [
+  { value: "tree", label: "階層順（WBS）" },
   { value: "planned_end", label: "終了予定日" },
   { value: "planned_start", label: "開始予定日" },
   { value: "risk_score", label: "Risk Score" },
@@ -48,7 +50,7 @@ export default function TasksPage() {
     category_task_id: "",
     overdue: false,
     risk_min: "",
-    sort: "planned_end",
+    sort: "tree",
     order: "asc",
   });
 
@@ -65,12 +67,12 @@ export default function TasksPage() {
           category_task_id: filters.category_task_id || undefined,
           overdue: filters.overdue,
           risk_min: filters.risk_min || undefined,
-          sort: filters.sort,
+          sort: filters.sort === "tree" ? "planned_start" : filters.sort,
           order: filters.order,
         }),
         api.listPeople(projectId),
       ]);
-      setTasks(taskList);
+      setTasks(filters.sort === "tree" ? orderAsTree(taskList) : taskList);
       setPeople(peopleList);
       setError(null);
     } catch (err) {
@@ -96,6 +98,29 @@ export default function TasksPage() {
       .catch(() => setAllProjectTasks([]));
   }, [projectId, tasks]);
   const categories = allProjectTasks.filter((task) => task.child_task_ids.length > 0);
+
+  /** カテゴリ行に出す「配下の最大Risk」 */
+  const maxChildRisk = useMemo(() => {
+    const childrenOf = new Map<number, Task[]>();
+    allProjectTasks.forEach((task) => {
+      if (task.parent_task_id) {
+        childrenOf.set(task.parent_task_id, [...(childrenOf.get(task.parent_task_id) ?? []), task]);
+      }
+    });
+    const result = new Map<number, number>();
+    const walk = (task: Task, depth = 0): number => {
+      if (depth > 10) return 0;
+      const children = childrenOf.get(task.id) ?? [];
+      const score = children.reduce(
+        (max, child) => Math.max(max, child.risk_score, walk(child, depth + 1)),
+        0,
+      );
+      result.set(task.id, score);
+      return score;
+    };
+    allProjectTasks.filter((t) => !t.parent_task_id).forEach((root) => walk(root));
+    return result;
+  }, [allProjectTasks]);
 
   // 行のセレクトに出す提案（LLMを使わないルールベースなので即時・無料）
   useEffect(() => {
@@ -320,7 +345,7 @@ export default function TasksPage() {
                 category_task_id: "",
                 overdue: false,
                 risk_min: "",
-                sort: "planned_end",
+                sort: "tree",
                 order: "asc",
               })
             }
@@ -349,15 +374,25 @@ export default function TasksPage() {
                 <th className="th w-40">進捗</th>
                 <th className="th">Status</th>
                 <th className="th">優先度</th>
-                <th className="th">Risk</th>
+                <th className="th whitespace-nowrap">Risk</th>
                 <th className="th">依存</th>
                 <th className="th"></th>
               </tr>
             </thead>
             <tbody>
               {tasks.map((task) => (
-                <tr key={task.id} className="border-t border-slate-100 hover:bg-slate-50/60">
-                  <td className="td whitespace-nowrap text-xs text-ink-500">{task.code}</td>
+                <tr
+                  key={task.id}
+                  className={
+                    task.is_summary
+                      ? "border-t-2 border-indigo-200 bg-indigo-50/60 hover:bg-indigo-50"
+                      : "border-t border-slate-100 hover:bg-slate-50/60"
+                  }
+                >
+                  <td className="td whitespace-nowrap text-xs text-ink-500">
+                    {task.is_summary && <span className="mr-1 text-indigo-500">▣</span>}
+                    {task.code}
+                  </td>
                   <td className="td w-[200px] max-w-[200px]">
                     <select
                       className="w-full truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink-700 hover:border-slate-300"
@@ -365,7 +400,7 @@ export default function TasksPage() {
                       value={task.parent_task_id ?? ""}
                       onChange={(event) => void changeCategory(task, event.target.value)}
                     >
-                      <option value="">（カテゴリなし）</option>
+                      <option value="">{task.is_summary ? "（最上位カテゴリ）" : "（カテゴリなし）"}</option>
                       {hints[task.id] && (
                         <option value={`${SUGGESTED}${hints[task.id].suggested_category}`}>
                           ✦ 提案: {hints[task.id].suggested_category}
@@ -400,33 +435,42 @@ export default function TasksPage() {
                       })()}
                     </select>
                     <div className="mt-0.5 flex items-center gap-1">
-                      {task.child_count > 0 && (
+                      {task.is_summary && (
                         <button
+                          className="text-[11px] text-indigo-600 hover:underline"
                           onClick={() => setFilters({ ...filters, category_task_id: String(task.id) })}
                           title="このカテゴリで絞り込む"
                         >
-                          <Badge className="whitespace-nowrap border-indigo-200 bg-indigo-50 text-indigo-700">
-                            カテゴリ 子{task.child_count}
-                          </Badge>
+                          配下{task.child_count}件を表示 →
                         </button>
                       )}
-                      {task.path_titles.length > 1 && (
+                      {!task.is_summary && task.path_titles.length > 1 && (
                         <span className="truncate text-[11px] text-ink-400" title={task.path_titles.join(" / ")}>
                           {task.category}
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="td min-w-[220px]">
+                  <td className="td min-w-[220px]" style={{ paddingLeft: 12 + Math.min(3, task.depth) * 16 }}>
                     <button
-                      className="text-left font-medium hover:underline"
+                      className={
+                        task.is_summary
+                          ? "text-left text-[15px] font-bold tracking-tight text-indigo-900 hover:underline"
+                          : "text-left font-medium hover:underline"
+                      }
                       onClick={() => {
                         setEditing(task);
                         setShowForm(true);
                       }}
                     >
+                      {task.is_summary && <span className="mr-1.5 text-indigo-400">▣</span>}
                       {task.title}
                     </button>
+                    {task.is_summary && (
+                      <span className="ml-2 text-[11px] text-indigo-700">
+                        カテゴリ・{task.child_count}件
+                      </span>
+                    )}
                     <div className="mt-0.5 flex flex-wrap gap-1">
                       {task.is_overdue && (
                         <Badge className="border-rose-200 bg-rose-50 text-rose-700">
@@ -505,10 +549,23 @@ export default function TasksPage() {
                   </td>
                   <td className="td text-xs">{PRIORITY_LABELS[task.priority]}</td>
                   <td className="td">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block h-2 w-2 rounded-full ${riskClass(task.risk_score)}`} />
-                      <span className="text-xs tabular-nums">{task.risk_score.toFixed(0)}</span>
-                    </div>
+                    {task.is_summary ? (
+                      <div className="flex items-center gap-1.5 whitespace-nowrap" title="配下Taskの最大Risk Score">
+                        <span
+                          className={`inline-block h-2 w-2 rounded-full ${riskClass(
+                            maxChildRisk.get(task.id) ?? 0,
+                          )}`}
+                        />
+                        <span className="text-[11px] tabular-nums text-ink-500">
+                          最大{(maxChildRisk.get(task.id) ?? 0).toFixed(0)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block h-2 w-2 rounded-full ${riskClass(task.risk_score)}`} />
+                        <span className="text-xs tabular-nums">{task.risk_score.toFixed(0)}</span>
+                      </div>
+                    )}
                   </td>
                   <td className="td text-xs text-ink-500">
                     {task.predecessor_task_ids.length > 0 && `先行 ${task.predecessor_task_ids.length}`}
