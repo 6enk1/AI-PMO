@@ -14,10 +14,15 @@ import type {
   TaskRisk,
 } from "./types";
 
+import { MOCK_ENABLED, handleMock } from "./mock/server";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // NEXT_PUBLIC_MOCK=1 のときはバックエンドを呼ばず、メモリ上の擬似データを返す
+  if (MOCK_ENABLED) return handleMock<T>(path, init);
+
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {

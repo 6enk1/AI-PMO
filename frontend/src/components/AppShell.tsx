@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useProjects } from "./ProjectProvider";
 import { Field, Modal } from "./ui";
@@ -19,10 +19,16 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { projects, projectId, selectProject, reloadProjects } = useProjects();
+  const { projects, project, projectId, selectProject, reloadProjects } = useProjects();
   const [creating, setCreating] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", start_date: "", end_date: "" });
   const [error, setError] = useState<string | null>(null);
+
+  // 画面遷移したらモバイルのドロワーは閉じる
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
 
   async function createProject(event: React.FormEvent) {
     event.preventDefault();
@@ -42,12 +48,50 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const current = NAV.find((item) => item.href === pathname);
+
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-5 py-4">
-          <p className="text-lg font-semibold tracking-tight">AI PMO</p>
-          <p className="text-xs text-ink-400">Project Management OS v0.1</p>
+      {/* モバイル用のヘッダー（lg未満で表示） */}
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 lg:hidden">
+        <button
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-xl text-ink-700 hover:bg-slate-100"
+          onClick={() => setNavOpen(true)}
+          aria-label="メニューを開く"
+        >
+          ☰
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold leading-tight">{current?.label ?? "AI PMO"}</p>
+          <p className="truncate text-[11px] leading-tight text-ink-400">{project?.name ?? "プロジェクト未選択"}</p>
+        </div>
+      </header>
+
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-ink-900/40 lg:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white transition-transform lg:static lg:translate-x-0 ${
+          navOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <p className="text-lg font-semibold tracking-tight">AI PMO</p>
+            <p className="text-xs text-ink-400">Project Management OS v0.1</p>
+          </div>
+          <button
+            className="-mr-2 flex h-11 w-11 items-center justify-center text-ink-400 lg:hidden"
+            onClick={() => setNavOpen(false)}
+            aria-label="メニューを閉じる"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="border-b border-slate-100 px-4 py-3">
@@ -64,7 +108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </option>
             ))}
           </select>
-          <button className="btn-secondary mt-2 w-full" onClick={() => setCreating(true)}>
+          <button className="btn-secondary mt-2 min-h-[44px] w-full" onClick={() => setCreating(true)}>
             ＋ 新規プロジェクト
           </button>
         </div>
@@ -76,7 +120,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+                className={`flex min-h-[44px] items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
                   active ? "bg-ink-900 text-white" : "text-ink-700 hover:bg-slate-100"
                 }`}
               >
@@ -92,8 +136,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </p>
       </aside>
 
-      <main className="flex-1 overflow-x-auto">
-        <div className="mx-auto max-w-[1400px] p-6">{children}</div>
+      <main className="min-w-0 flex-1 overflow-x-auto pt-14 lg:pt-0">
+        <div className="mx-auto max-w-[1400px] p-4 sm:p-6">{children}</div>
       </main>
 
       {creating && (

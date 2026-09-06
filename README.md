@@ -19,6 +19,20 @@ AIの出力には必ずEvidenceが付きます。
 
 ---
 
+## 0. レビュー用（バックエンド無しで動かす）
+
+```bash
+cd frontend && npm install
+NEXT_PUBLIC_MOCK=1 npm run dev      # http://localhost:3000
+```
+
+APIをメモリ上の擬似データに差し替えて全画面が動きます（MSW不使用）。
+200件・40文字ラベルのストレス確認用プロジェクトも同梱。件数は
+`NEXT_PUBLIC_MOCK_TASKS` / `NEXT_PUBLIC_MOCK_LABEL_LENGTH` で変更できます。
+詳細と既知の制限は [REVIEW.md](REVIEW.md) を参照してください。
+
+---
+
 ## 1. クイックスタート
 
 ### Docker（推奨）
