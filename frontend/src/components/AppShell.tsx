@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useProjects } from "./ProjectProvider";
+import { MOCK_ENABLED } from "@/lib/mock/server";
 import { Field, Modal } from "./ui";
 
 const NAV = [
@@ -137,7 +138,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="min-w-0 flex-1 overflow-x-auto pt-14 lg:pt-0">
-        <div className="mx-auto max-w-[1400px] p-4 sm:p-6">{children}</div>
+        <div className="mx-auto max-w-[1400px] p-4 sm:p-6">
+          {MOCK_ENABLED && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              デモモードです。表示しているのはサンプルデータで、変更はブラウザを再読み込みすると元に戻ります。
+            </p>
+          )}
+          {children}
+        </div>
       </main>
 
       {creating && (

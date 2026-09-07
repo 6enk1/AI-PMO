@@ -135,6 +135,22 @@ npm install && npm run dev
 
 ---
 
+## 5. 触れるデモ（GitHub Pages）
+
+環境構築なしでURLを開くだけで触れるデモを公開しています。
+
+**https://6enk1.github.io/AI-PMO/**
+
+- フロントエンドだけを静的書き出しし、APIはモックデータに置き換えたものです
+- Task/Issue/担当者の追加・編集・削除、フィルタ、ソートはその場で動きます（保存はされず、再読み込みで戻ります）
+- プロジェクト切替に「ストレス確認 PJ (200件・40文字ラベル)」を同梱
+- Excel取り込みの実処理とAI分析の実ロジックは含まれません（画面と固定のプレビューのみ）
+
+公開は `.github/workflows/pages.yml` が担当します。初回のみリポジトリ側で
+**Settings → Pages → Build and deployment → Source を「GitHub Actions」** に設定してください。
+
+---
+
 ## 4. こちらから見てほしい点
 
 1. 390px での各画面の壊れ方（特にTask一覧のテーブルとガント）
