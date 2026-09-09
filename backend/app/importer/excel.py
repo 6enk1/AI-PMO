@@ -171,7 +171,7 @@ def analyze_upload(
     sheets = list_sheets(path)
     frame, detected_header, selected = load_frame(path, sheet, header_row)
     columns = [str(c) for c in frame.columns]
-    mapping, candidates = guess_mapping(columns)
+    mapping, candidates = guess_mapping(columns, allow_title_fallback=False)
 
     # 列名で拾えなかった自由記述列を課題列として補完する
     auto_issue_column = None
@@ -180,6 +180,10 @@ def analyze_upload(
         auto_issue_column = find_free_text_column(frame, used_columns)
         if auto_issue_column:
             mapping["issue"] = auto_issue_column
+
+    # 課題列が無い＝タスク一覧のはずなので、タスク名の列を仮割当してでも決める
+    if not mapping.get("title") and not mapping.get("issue"):
+        mapping, candidates = guess_mapping(columns)
 
     sheet_infos = []
     for name in sheets:
@@ -213,22 +217,25 @@ def analyze_upload(
         for _, row in frame.head(PREVIEW_ROWS).iterrows()
     ]
 
+    detected = detect_content(frame, mapping)
+
     warnings: list[str] = []
     if auto_issue_column:
         warnings.append(
             f"「{auto_issue_column}」列は自由記述に見えたため、課題列として扱います（列マッピングで変更できます）。"
         )
-    if not mapping.get("title"):
-        warnings.append("タスク名の列を特定できませんでした。列マッピングで指定してください。")
-    if not mapping.get("planned_end"):
-        warnings.append("終了予定日の列が見つかりません。期限超過・遅延リスクの検出精度が下がります。")
-    if not mapping.get("owner"):
-        warnings.append("担当者の列が見つかりません。担当者別の負荷分析ができません。")
+    # 課題リストにタスク用の列が無いのは当たり前なので、警告として出さない
+    if detected["content_kind"] != "issues":
+        if not mapping.get("title"):
+            warnings.append("タスク名の列を特定できませんでした。列マッピングで指定してください。")
+        if not mapping.get("planned_end"):
+            warnings.append("終了予定日の列が見つかりません。期限超過・遅延リスクの検出精度が下がります。")
+        if not mapping.get("owner"):
+            warnings.append("担当者の列が見つかりません。担当者別の負荷分析ができません。")
     if len(frame) == 0:
         warnings.append("データ行が0件です。ヘッダー行の指定を見直してください。")
 
     used = {c for c in mapping.values() if c}
-    detected = detect_content(frame, mapping)
     return {
         **detected,
         "token": token,
@@ -370,11 +377,11 @@ def _parse_rows(frame: pd.DataFrame, mapping: dict[str, str | None]) -> tuple[li
     return rows, skipped
 
 
-def _resolve_mapping(request, frame: pd.DataFrame) -> dict[str, str | None]:
+def _resolve_mapping(request, frame: pd.DataFrame, require_title: bool = True) -> dict[str, str | None]:
     mapping = {k: (v or None) for k, v in (request.mapping or {}).items()}
     if not mapping:
         mapping, _ = guess_mapping([str(c) for c in frame.columns])
-    if not mapping.get("title"):
+    if require_title and not mapping.get("title"):
         raise ValueError("タスク名の列が指定されていません。")
     return mapping
 
@@ -489,7 +496,7 @@ def commit_import(db: Session, request) -> dict[str, Any]:
     """Create or update tasks / people / issues / dependencies from a spreadsheet."""
     path, filename = resolve_upload(request.token)
     frame, _, _ = load_frame(path, request.sheet, request.header_row)
-    mapping = _resolve_mapping(request, frame)
+    mapping = _resolve_mapping(request, frame, require_title=getattr(request, "create_tasks", True))
     match_by = _default_match_by(request)
 
     warnings: list[str] = []
@@ -722,6 +729,16 @@ def commit_import(db: Session, request) -> dict[str, Any]:
         "warnings": warnings[:20],
     }
 
+def _first_text(row, candidates: list[str | None], columns: list[str]) -> str | None:
+    """関連タスクの手がかりを、タスク名列 → 親タスク列の順で拾う。"""
+    for column in candidates:
+        if column and column in columns:
+            value = vp.clean_str(row.get(column))
+            if value:
+                return value
+    return None
+
+
 def issue_rows(request) -> dict[str, Any]:
     """課題列（自由記述）の全行テキストを取り出す。分類はここでは行わない。"""
     path, _ = resolve_upload(request.token)
@@ -736,14 +753,27 @@ def issue_rows(request) -> dict[str, Any]:
         column = None
     title_column = mapping.get("title")
 
+    # テンプレートの「重要度」「期限」列は、書かれていればそのまま使う
+    severity_column = mapping.get("priority")
+    due_column = mapping.get("planned_end")
+
     rows: list[dict[str, Any]] = []
     if column:
         for index, (_, raw_row) in enumerate(frame.iterrows()):
             text = vp.clean_str(raw_row.get(column))
             if not text:
                 continue
-            hint = vp.clean_str(raw_row.get(title_column)) if title_column in columns else None
-            rows.append({"row_index": index, "text": text, "task_hint": hint})
+            rows.append(
+                {
+                    "row_index": index,
+                    "text": text,
+                    "task_hint": _first_text(raw_row, [title_column, mapping.get("parent")], columns),
+                    "severity_hint": vp.clean_str(raw_row.get(severity_column))
+                    if severity_column in columns
+                    else None,
+                    "due_date": vp.parse_date(raw_row.get(due_column)) if due_column in columns else None,
+                }
+            )
 
     return {"text_column": column, "rows": rows, "available_columns": columns}
 
@@ -755,6 +785,9 @@ TASK_SIGNAL_FIELDS = (
 FREE_TEXT_MIN_LENGTH = 12  # これ以上の長さなら「自由記述」とみなす
 # 連番（No列）はどんな表にもあるので、WBSの根拠としては弱い
 WEAK_TASK_FIELDS = ("code",)
+# 重要度・担当・期限は課題リストにもよくある列なので、自由記述の課題列が
+# あるときはWBSの根拠にしない（WBS固有なのは予定開始日・進捗・依存など）
+ISSUE_COMPATIBLE_FIELDS = ("priority", "owner", "planned_end")
 
 
 def find_free_text_column(frame: pd.DataFrame, used: set[str]) -> str | None:
@@ -795,12 +828,6 @@ def detect_content(frame: pd.DataFrame, mapping: dict[str, str | None]) -> dict[
             return 0
         return sum(1 for value in frame[column] if vp.clean_str(value))
 
-    task_fields = [f for f in TASK_SIGNAL_FIELDS if mapping.get(f) and filled(mapping[f]) > 0]
-    strong_task_fields = [f for f in task_fields if f not in WEAK_TASK_FIELDS]
-    if task_fields:
-        labels = [FIELD_LABELS.get(f, f) for f in task_fields]
-        evidence.append("タスク用の列に値がある: " + "、".join(labels[:5]))
-
     issue_column = mapping.get("issue")
     issue_texts = (
         [vp.clean_str(value) or "" for value in frame[issue_column]]
@@ -809,6 +836,25 @@ def detect_content(frame: pd.DataFrame, mapping: dict[str, str | None]) -> dict[
     )
     issue_texts = [t for t in issue_texts if t]
     long_issue_texts = [t for t in issue_texts if len(t) >= FREE_TEXT_MIN_LENGTH]
+
+    task_fields = [f for f in TASK_SIGNAL_FIELDS if mapping.get(f) and filled(mapping[f]) > 0]
+    ignored = ISSUE_COMPATIBLE_FIELDS if long_issue_texts else ()
+    strong_task_fields = [
+        f for f in task_fields if f not in WEAK_TASK_FIELDS and f not in ignored
+    ]
+    if strong_task_fields:
+        labels = [FIELD_LABELS.get(f, f) for f in strong_task_fields]
+        evidence.append("タスク用の列に値がある: " + "、".join(labels[:5]))
+    elif task_fields and not long_issue_texts:
+        labels = [FIELD_LABELS.get(f, f) for f in task_fields]
+        evidence.append("タスク用の列に値がある: " + "、".join(labels[:5]))
+    elif [f for f in task_fields if f in ignored]:
+        # ユーザーが書いた列名でそのまま伝えたほうが分かりやすい
+        names = [str(mapping[f]) for f in task_fields if f in ignored and mapping.get(f)]
+        evidence.append(
+            "「" + "、".join(names) + "」の列もあるが、課題リストにもよくある列なのでWBSとは判定しない"
+        )
+
     if issue_texts:
         evidence.append(
             f"課題列「{issue_column}」に {len(issue_texts)} 行の記述"

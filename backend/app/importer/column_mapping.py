@@ -123,8 +123,14 @@ def score_candidates(columns: list[str]) -> list[Candidate]:
     return sorted(candidates, key=lambda c: c.score, reverse=True)
 
 
-def guess_mapping(columns: list[str]) -> tuple[dict[str, str | None], list[Candidate]]:
-    """Greedily assign at most one column per field and one field per column."""
+def guess_mapping(
+    columns: list[str], allow_title_fallback: bool = True
+) -> tuple[dict[str, str | None], list[Candidate]]:
+    """Greedily assign at most one column per field and one field per column.
+
+    ``allow_title_fallback`` は、タスク名らしい列が無いときに未使用列を仮割当するか。
+    課題リスト（タスク名の列が存在しない）では、無関係な列を掴まないよう無効にする。
+    """
     candidates = score_candidates(columns)
     mapping: dict[str, str | None] = {field: None for field in FIELD_SYNONYMS}
     used_columns: set[str] = set()
@@ -138,7 +144,7 @@ def guess_mapping(columns: list[str]) -> tuple[dict[str, str | None], list[Candi
 
     # A WBS with no recognisable title column still needs one: fall back to the
     # first unused text column so the user has something to correct.
-    if mapping.get("title") is None:
+    if allow_title_fallback and mapping.get("title") is None:
         for column in columns:
             if column not in used_columns and normalize_header(column):
                 mapping["title"] = column

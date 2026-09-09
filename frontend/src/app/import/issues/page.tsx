@@ -145,6 +145,7 @@ export default function IssueTriagePage() {
           title: item.title || item.statement.slice(0, 60),
           description: item.description || item.statement,
           severity: item.severity,
+          due_date: item.due_date,
           task_id: item.related_task_candidates[0]?.task_id ?? null,
           status: "open",
         })),
@@ -210,7 +211,7 @@ export default function IssueTriagePage() {
           チェックを入れた行だけが、Issue管理に登録されます。
         </p>
         <p className="mt-1 text-xs">
-          課題名・詳細・関連タスク・重要度はこの画面で修正できます。修正した内容で登録されます。
+          課題名・詳細・関連タスク・重要度・期限はこの画面で修正できます。修正した内容で登録されます。
           登録するまで、Issue管理には何も追加されません。
         </p>
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs">
@@ -313,7 +314,7 @@ export default function IssueTriagePage() {
         <EmptyState title="表示できる行がありません" hint="フィルタを変更するか、Import画面からやり直してください。" />
       ) : (
         <div className="card overflow-x-auto">
-          <table className="w-full min-w-[1100px]">
+          <table className="w-full min-w-[1240px]">
             <thead className="bg-slate-50">
               <tr>
                 <th className="th w-10"></th>
@@ -322,6 +323,7 @@ export default function IssueTriagePage() {
                 <th className="th">詳細</th>
                 <th className="th">関連タスク</th>
                 <th className="th">重要度</th>
+                <th className="th">期限</th>
               </tr>
             </thead>
             <tbody>
@@ -441,6 +443,17 @@ export default function IssueTriagePage() {
                       ))}
                     </select>
                     <p className="mt-1 text-[11px] text-ink-400">推定 {item.severity_estimate}</p>
+                  </td>
+                  <td className="td w-36">
+                    <input
+                      type="date"
+                      className="input py-1 text-sm"
+                      value={item.due_date ?? ""}
+                      onChange={(event) => update(item.id, { due_date: event.target.value || null })}
+                    />
+                    <p className="mt-1 text-[11px] text-ink-400">
+                      {item.due_date ? "記入された期限" : "未設定"}
+                    </p>
                   </td>
                 </tr>
               ))}

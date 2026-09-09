@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useProjects } from "@/components/ProjectProvider";
 import { Badge, Card, ErrorBanner, Field, Loading } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, TEMPLATE_URL } from "@/lib/api";
 import { STATUS_LABELS } from "@/lib/format";
 import { TRIAGE_CONTEXT_KEY } from "@/lib/triage";
 import type {
@@ -18,6 +18,15 @@ import type {
 } from "@/lib/types";
 
 const REQUIRED_FIELD = "title";
+
+// 課題リストのときに意味がある列だけを、課題リストの言葉で見せる
+const ISSUE_FIELD_LABELS: Record<string, string> = {
+  issue: "課題・気になっていること",
+  parent: "関連するタスク・工程",
+  priority: "重要度",
+  planned_end: "期限",
+  notes: "備考",
+};
 
 type IssueMode = "triage" | "raw" | "skip";
 
@@ -32,6 +41,7 @@ export default function ImportPage() {
   const [issueMode, setIssueMode] = useState<IssueMode>("triage");
   // 自動判定がつかないファイルだけ、ユーザーに種類を選んでもらう
   const [kindOverride, setKindOverride] = useState<ContentKind | null>(null);
+  const [showAllFields, setShowAllFields] = useState(false);
   const [matchBy, setMatchBy] = useState<MatchBy>("auto");
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,6 +86,13 @@ export default function ImportPage() {
   const kind: ContentKind = kindOverride ?? analysis?.content_kind ?? "unknown";
   const showTaskSettings = kind === "wbs" || kind === "mixed";
   const showIssueSettings = kind === "issues" || kind === "mixed";
+  // 課題リストのときは、課題に関わる列だけを課題リストの言葉で見せる
+  const issueLabels = !showTaskSettings && !showAllFields;
+  const mappingFields = analysis
+    ? issueLabels
+      ? analysis.known_fields.filter((field) => field.field in ISSUE_FIELD_LABELS)
+      : analysis.known_fields
+    : [];
 
   function importPayload() {
     if (!analysis) return null;
@@ -95,7 +112,7 @@ export default function ImportPage() {
   async function checkDiff() {
     const payload = importPayload();
     if (!payload) return;
-    if (!mapping[REQUIRED_FIELD]) {
+    if (showTaskSettings && !mapping[REQUIRED_FIELD]) {
       setError("タスク名の列を指定してください。");
       return;
     }
@@ -112,8 +129,12 @@ export default function ImportPage() {
 
   async function commit() {
     if (!analysis) return;
-    if (!mapping[REQUIRED_FIELD]) {
+    if (showTaskSettings && !mapping[REQUIRED_FIELD]) {
       setError("タスク名の列を指定してください。");
+      return;
+    }
+    if (!showTaskSettings && !mapping.issue) {
+      setError("課題が書かれている列を指定してください。");
       return;
     }
     setBusy(true);
@@ -177,6 +198,18 @@ export default function ImportPage() {
             読み込み済み: <span className="font-medium">{analysis.filename}</span>
           </p>
         )}
+        <div className="mt-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <p className="text-sm font-medium text-ink-700">
+            課題を集めるところからなら、記入用テンプレートを配ってください
+          </p>
+          <p className="mt-1 text-xs text-ink-500">
+            必須は「課題・気になっていること」の1列だけ。記入例・記入のしかたシート付きで、
+            そのままここにアップロードすれば取り込めます。
+          </p>
+          <a className="btn-secondary mt-2 inline-block" href={TEMPLATE_URL} download>
+            課題リストのテンプレート（.xlsx）をダウンロード
+          </a>
+        </div>
       </Card>
 
       {busy && <Loading label="処理中…" />}
@@ -288,15 +321,25 @@ export default function ImportPage() {
           </Card>
 
           <Card title="4. 列マッピング">
+            {!showTaskSettings && (
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-ink-500">
+                <span>課題リストとして取り込むため、課題に関わる列だけを表示しています。</span>
+                <button className="underline" onClick={() => setShowAllFields(!showAllFields)}>
+                  {showAllFields ? "課題に関わる列だけ表示" : "すべての列を表示"}
+                </button>
+              </div>
+            )}
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {analysis.known_fields.map((field) => {
+              {mappingFields.map((field) => {
                 const candidate = analysis.mapping_candidates.find((item) => item.field === field.field);
                 return (
                   <div key={field.field} className="rounded-lg border border-slate-200 p-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-ink-700">
-                        {field.label}
-                        {field.field === REQUIRED_FIELD && <span className="ml-1 text-rose-500">*</span>}
+                        {issueLabels ? ISSUE_FIELD_LABELS[field.field] ?? field.label : field.label}
+                        {field.field === (showTaskSettings ? REQUIRED_FIELD : "issue") && (
+                          <span className="ml-1 text-rose-500">*</span>
+                        )}
                       </span>
                       {candidate && mapping[field.field] === candidate.column && (
                         <Badge className="border-slate-200 bg-slate-50 text-ink-400">
@@ -333,6 +376,26 @@ export default function ImportPage() {
           </Card>
 
           <Card title="5. プレビュー（変換後）">
+            {!showTaskSettings ? (
+              <ol className="space-y-2">
+                {analysis.raw_preview.map((row, index) => {
+                  const value = (field: string) => {
+                    const column = mapping[field];
+                    return column ? row[column] ?? "" : "";
+                  };
+                  return (
+                    <li key={index} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                      <p className="text-ink-800">{value("issue") || "（この行には記述がありません）"}</p>
+                      <p className="mt-1 flex flex-wrap gap-3 text-[11px] text-ink-400">
+                        {value("parent") && <span>関連: {value("parent")}</span>}
+                        {value("priority") && <span>重要度: {value("priority")}</span>}
+                        {value("planned_end") && <span>期限: {value("planned_end")}</span>}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px]">
                 <thead className="bg-slate-50">
@@ -371,6 +434,7 @@ export default function ImportPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </Card>
 
           <Card title="6. 取り込み先とImport実行">

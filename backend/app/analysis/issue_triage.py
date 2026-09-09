@@ -50,6 +50,7 @@ ISSUE_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"進め(?:られ)?な|進まな|進んでいな|進められませ", "進められない"),
     (r"(?:てお|てい)らず", "否定の言い回し"),
     (r"(?:未|不)(?:確定|明確|整備|整理)", "未確定"),
+    (r"(?:決ま|固ま|定ま|揃わ)(?:ら|り)(?:な|ませ)", "決まっていない"),
     (r"延期|中断|見送り|持ち越し", "予定の後ろ倒し"),
     (r"催促|督促", "催促が必要"),
     (r"わからな|分からな|不明", "内容が不明"),
@@ -172,8 +173,16 @@ def summarize_title(text: str, max_length: int = 28) -> str:
     cleaned = _clean_segment(text)
     first = SENTENCE_SPLIT.split(cleaned)[0].strip() if cleaned else ""
     base = first or cleaned
-    # 文末の丁寧語だけ落とす。内容語は削らない。
-    base = re.sub(r"(?:して)?(?:ください|下さい|お願いします|願います|しています|しております|します|です|ます)$", "", base).strip("　 、。")
+    # 分割で先頭に残った接続語を落とす（「あと検証環境で…」→「検証環境で…」）
+    base = re.sub(r"^(?:あと|また|それと|なお|さらに|加えて|あとは|ちなみに)[、,]?\s*", "", base)
+    # 依頼の言い回しだけ落とす。述語（「〜しています」など）は残す：
+    # 動詞の途中で切ると「エラーが出てい」のような読めない課題名になるため。
+    trimmed = re.sub(
+        r"(?:して)?(?:ください|下さい|お願いいたします|お願いします|願います)$", "", base
+    ).strip("　 、。")
+    # 助詞で終わる／短すぎる残りは意味が通らないので、削らずそのまま使う
+    if len(trimmed) >= 6 and not re.search(r"[をにがはのでへとも]$", trimmed):
+        base = trimmed
     if len(base) <= max_length:
         return base or cleaned[:max_length]
     return base[: max_length - 1] + "…"

@@ -347,6 +347,7 @@ export interface TriageItem {
   severity: Severity;
   reasons: string[];
   related_task_candidates: TriageTaskCandidate[];
+  due_date: string | null;
   split: boolean;
   source: string;
 }
@@ -368,6 +369,8 @@ export interface ImportIssueRow {
   row_index: number | null;
   text: string;
   task_hint: string | null;
+  severity_hint: string | null;
+  due_date: string | null;
 }
 
 export interface ImportIssueRowsResponse {

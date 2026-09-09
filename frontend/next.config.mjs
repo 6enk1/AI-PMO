@@ -15,6 +15,8 @@ const nextConfig = {
   assetPrefix: basePath || undefined,
   trailingSlash: isPages || undefined,
   images: { unoptimized: true },
+  // クライアント側から basePath を参照できるようにする（静的ファイルのリンク用）
+  env: { NEXT_PUBLIC_BASE_PATH: basePath },
 };
 
 export default nextConfig;

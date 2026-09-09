@@ -273,19 +273,23 @@ const IMPORT_SAMPLE: ImportAnalyze = {
 
 /** デモ用の課題リスト（先方が書いた雑多な文章のイメージ） */
 const MOCK_ISSUE_ROWS = [
-  { row_index: 0, text: "特にありません。予定通り終わりました", task_hint: "現行業務調査" },
-  { row_index: 1, text: "経営層の意思決定がまだ出ていません。承認会議が延期になっており、後続が止まります", task_hint: "改善方針策定" },
-  { row_index: 2, text: "・帳票の出力仕様が決まっていない\n・外部連携の認証方式について先方の回答待ち", task_hint: "システム要件定義" },
-  { row_index: 3, text: "見積が1社しか届いていません。至急、他社にも催促が必要です", task_hint: "ベンダー選定" },
-  { row_index: 4, text: "検討中", task_hint: "社内教育資料作成" },
-  { row_index: 5, text: "ありがとうございました。引き続きよろしくお願いします", task_hint: "課題整理" },
+  { row_index: 0, text: "特にありません。予定通り終わりました", task_hint: "現行業務調査", severity_hint: null, due_date: null },
+  { row_index: 1, text: "経営層の意思決定がまだ出ていません。承認会議が延期になっており、後続が止まります", task_hint: "改善方針策定", severity_hint: null, due_date: null },
+  { row_index: 2, text: "・帳票の出力仕様が決まっていない\n・外部連携の認証方式について先方の回答待ち", task_hint: "システム要件定義", severity_hint: null, due_date: isoDate(10) },
+  { row_index: 3, text: "見積が1社しか届いていません。至急、他社にも催促が必要です", task_hint: "ベンダー選定", severity_hint: "高", due_date: isoDate(3) },
+  { row_index: 4, text: "検討中", task_hint: "社内教育資料作成", severity_hint: null, due_date: null },
+  { row_index: 5, text: "ありがとうございました。引き続きよろしくお願いします", task_hint: "課題整理", severity_hint: null, due_date: null },
 ];
 
 const MOCK_ISSUE_WORDS = ["決まっていない", "回答待ち", "止まり", "延期", "ていません", "エラー", "至急", "催促", "遅れ", "できない"];
 const MOCK_REPORT_WORDS = ["特にありません", "完了しました", "終わりました", "ありがとうございました", "よろしくお願いします", "順調"];
 
 /** バックエンドの判定を模した簡易版（デモ表示用。実ロジックはPython側） */
-function triageMock(text: string, rowIndex: number) {
+function triageMock(
+  text: string,
+  rowIndex: number,
+  hint: { severity_hint?: string | null; due_date?: string | null } = {},
+) {
   const statements = text
     .split(/[\n]+/)
     .flatMap((line) => (line.split("。").length > 2 ? line.split("。") : [line]))
@@ -301,7 +305,12 @@ function triageMock(text: string, rowIndex: number) {
         : reportHits.length && !issueHits.length
           ? "not_issue"
           : "uncertain";
-    const severity = statement.includes("至急") ? "high" : "medium";
+    const severity =
+      hint.severity_hint === "高" || statement.includes("至急")
+        ? "high"
+        : hint.severity_hint === "低"
+          ? "low"
+          : "medium";
     return {
       id: `r${rowIndex}-${partIndex}-0`,
       row_index: rowIndex,
@@ -317,8 +326,10 @@ function triageMock(text: string, rowIndex: number) {
       reasons: [
         issueHits.length ? `課題を示す語: ${issueHits.join("、")}` : "",
         reportHits.length ? `報告を示す語: ${reportHits.join("、")}` : "",
+        hint.severity_hint ? `記入された重要度「${hint.severity_hint}」を使用` : "",
       ].filter(Boolean),
       related_task_candidates: [],
+      due_date: hint.due_date ?? null,
       split: statements.length > 1,
       source: "rules",
     };
@@ -611,8 +622,18 @@ export function handleMock<T>(path: string, init?: RequestInit): Promise<T> {
     });
   }
   if (route === "/api/issues/analyze") {
-    const rows: { row_index?: number; text: string }[] = body.rows ?? MOCK_ISSUE_ROWS;
-    const items = rows.flatMap((row, index) => triageMock(row.text, row.row_index ?? index));
+    const rows: {
+      row_index?: number;
+      text: string;
+      severity_hint?: string | null;
+      due_date?: string | null;
+    }[] = body.rows ?? MOCK_ISSUE_ROWS;
+    const items = rows.flatMap((row, index) =>
+      triageMock(row.text, row.row_index ?? index, {
+        severity_hint: row.severity_hint,
+        due_date: row.due_date,
+      }),
+    );
     const counts = {
       issue: items.filter((i) => i.label === "issue").length,
       uncertain: items.filter((i) => i.label === "uncertain").length,
@@ -626,8 +647,13 @@ export function handleMock<T>(path: string, init?: RequestInit): Promise<T> {
     });
   }
   if (route === "/api/issues/bulk_create") {
-    const items: { title: string; description?: string; severity?: string; task_id?: number | null }[] =
-      body.items ?? [];
+    const items: {
+      title: string;
+      description?: string;
+      severity?: string;
+      due_date?: string | null;
+      task_id?: number | null;
+    }[] = body.items ?? [];
     const ids: number[] = [];
     items.forEach((item) => {
       const task = data.tasks.find((t) => t.id === item.task_id);
@@ -646,7 +672,7 @@ export function handleMock<T>(path: string, init?: RequestInit): Promise<T> {
         owner_id: null,
         owner_name: null,
         raised_on: isoDate(0),
-        due_date: null,
+        due_date: item.due_date ?? null,
         status: "open",
         action_plan: null,
         resolution: null,

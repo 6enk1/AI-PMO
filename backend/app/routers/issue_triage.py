@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..ai.llm import triage_statements
 from ..analysis.issue_triage import triage_rows
+from ..importer.value_parsers import parse_severity
 from ..database import get_db
 from ..models import Issue, Person, Project, Task
 
@@ -38,6 +39,11 @@ def analyze(payload: schemas.IssueAnalyzeRequest, db: Session = Depends(get_db))
         for index, row in enumerate(payload.rows)
     ]
     triaged = triage_rows(raw_rows, tasks)
+    # 記入者が書いた重要度・期限は、推定より優先して使う
+    hints = {
+        (row.row_index if row.row_index is not None else index): row
+        for index, row in enumerate(payload.rows)
+    }
 
     # ---- LLMがあれば説明・分割・ラベルを上書きする（候補タスクは実在名のみ）
     llm_used, llm_note = False, None
@@ -85,6 +91,14 @@ def analyze(payload: schemas.IssueAnalyzeRequest, db: Session = Depends(get_db))
             if label == "not_issue":
                 title, description = title or "", description or ""
 
+            hint = hints.get(entry["row_index"])
+            severity = SEVERITY_MAP.get(severity_jp, "medium")
+            due_date = hint.due_date if hint else None
+            if hint and hint.severity_hint:
+                severity = parse_severity(hint.severity_hint)
+                severity_jp = {"high": "高", "medium": "中", "low": "低", "critical": "高"}.get(severity, "不明")
+                reasons = [*reasons, f"記入された重要度「{hint.severity_hint}」を使用"]
+
             items.append(
                 schemas.IssueTriageItem(
                     id=f"r{entry['row_index']}-{entry['part_index']}-{part}",
@@ -97,7 +111,8 @@ def analyze(payload: schemas.IssueAnalyzeRequest, db: Session = Depends(get_db))
                     title=title,
                     description=description,
                     severity_estimate=severity_jp,  # type: ignore[arg-type]
-                    severity=SEVERITY_MAP.get(severity_jp, "medium"),  # type: ignore[arg-type]
+                    severity=severity,  # type: ignore[arg-type]
+                    due_date=due_date,
                     reasons=reasons,
                     related_task_candidates=[schemas.TriageTaskCandidate(**c) for c in candidates],
                     split=entry["split"] or len(overrides) > 1,

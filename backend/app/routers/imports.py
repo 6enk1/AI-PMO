@@ -1,16 +1,28 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from .. import schemas
 from ..database import get_db
 from ..importer import excel
+from ..importer.template import template_bytes
 
 router = APIRouter(prefix="/api/imports", tags=["import"])
 
 ALLOWED_SUFFIXES = (".xlsx", ".xlsm", ".xls", ".csv")
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+@router.get("/template")
+def download_template() -> Response:
+    """クライアントに配る課題リストのテンプレート（記入例・入力規則つき）。"""
+    return Response(
+        content=template_bytes(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="issue_list_template.xlsx"'},
+    )
 
 
 @router.post("/analyze", response_model=schemas.ImportAnalyzeResponse)

@@ -7,6 +7,7 @@ AI PMO の動作確認用のWBSファイルです。日付は**生成した日�
 
 ```bash
 python samples/generate_wbs_samples.py
+python samples/generate_issue_template.py   # クライアント記入用テンプレート
 ```
 
 | ファイル | 用途 |
@@ -14,6 +15,7 @@ python samples/generate_wbs_samples.py
 | `wbs_sample_v1.xlsx` | 初版。まずこれを新規プロジェクトとして取り込む |
 | `wbs_sample_v2_update.xlsx` | 1週間後の更新版。同期インポート（更新4件・追加2件）の確認用 |
 | `wbs_sample_en.csv` | 英語ヘッダーのCSV。列名の自動判定を試す用 |
+| `issue_list_template.xlsx` | **クライアントに配る課題記入用テンプレート**。記入例つき。記入して取り込むと課題分析プレビューへ進む |
 
 ## wbs_sample_v1.xlsx の中身
 

@@ -22,6 +22,13 @@ import { MOCK_ENABLED, handleMock } from "./mock/server";
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ?? "http://localhost:8000";
 
+// 記入用テンプレートの配布先。デモ（モックモード）ではバックエンドが無いので、
+// 同じ中身を public/ に置いた静的ファイルを配る。
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+export const TEMPLATE_URL = MOCK_ENABLED
+  ? `${BASE_PATH}/issue_list_template.xlsx`
+  : `${API_BASE}/api/imports/template`;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // NEXT_PUBLIC_MOCK=1 のときはバックエンドを呼ばず、メモリ上の擬似データを返す
   if (MOCK_ENABLED) return handleMock<T>(path, init);

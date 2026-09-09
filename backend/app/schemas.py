@@ -395,6 +395,8 @@ class IssueAnalyzeRow(BaseModel):
     row_index: int | None = None
     text: str
     task_hint: str | None = None
+    severity_hint: str | None = None  # 記入者が重要度を書いていれば推定より優先する
+    due_date: date | None = None
 
 
 class IssueAnalyzeRequest(BaseModel):
@@ -415,6 +417,7 @@ class IssueTriageItem(BaseModel):
     description: str = ""
     severity_estimate: SeverityEstimate = "不明"
     severity: Severity = "medium"
+    due_date: date | None = None
     reasons: list[str] = Field(default_factory=list)
     related_task_candidates: list[TriageTaskCandidate] = Field(default_factory=list)
     split: bool = False
