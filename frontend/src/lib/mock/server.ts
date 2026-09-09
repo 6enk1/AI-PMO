@@ -262,6 +262,61 @@ const IMPORT_SAMPLE: ImportAnalyze = {
   ],
 };
 
+
+/** デモ用の課題リスト（先方が書いた雑多な文章のイメージ） */
+const MOCK_ISSUE_ROWS = [
+  { row_index: 0, text: "特にありません。予定通り終わりました", task_hint: "現行業務調査" },
+  { row_index: 1, text: "経営層の意思決定がまだ出ていません。承認会議が延期になっており、後続が止まります", task_hint: "改善方針策定" },
+  { row_index: 2, text: "・帳票の出力仕様が決まっていない\n・外部連携の認証方式について先方の回答待ち", task_hint: "システム要件定義" },
+  { row_index: 3, text: "見積が1社しか届いていません。至急、他社にも催促が必要です", task_hint: "ベンダー選定" },
+  { row_index: 4, text: "検討中", task_hint: "社内教育資料作成" },
+  { row_index: 5, text: "ありがとうございました。引き続きよろしくお願いします", task_hint: "課題整理" },
+];
+
+const MOCK_ISSUE_WORDS = ["決まっていない", "回答待ち", "止まり", "延期", "ていません", "エラー", "至急", "催促", "遅れ", "できない"];
+const MOCK_REPORT_WORDS = ["特にありません", "完了しました", "終わりました", "ありがとうございました", "よろしくお願いします", "順調"];
+
+/** バックエンドの判定を模した簡易版（デモ表示用。実ロジックはPython側） */
+function triageMock(text: string, rowIndex: number) {
+  const statements = text
+    .split(/[\n]+/)
+    .flatMap((line) => (line.split("。").length > 2 ? line.split("。") : [line]))
+    .map((line) => line.replace(/^[・\-*]\s*/, "").trim())
+    .filter((line) => line.length >= 3);
+
+  return (statements.length ? statements : [text]).map((statement, partIndex) => {
+    const issueHits = MOCK_ISSUE_WORDS.filter((w) => statement.includes(w));
+    const reportHits = MOCK_REPORT_WORDS.filter((w) => statement.includes(w));
+    const label =
+      issueHits.length && !reportHits.length
+        ? "issue"
+        : reportHits.length && !issueHits.length
+          ? "not_issue"
+          : "uncertain";
+    const severity = statement.includes("至急") ? "high" : "medium";
+    return {
+      id: `r${rowIndex}-${partIndex}-0`,
+      row_index: rowIndex,
+      part_index: partIndex,
+      source_text: text,
+      statement,
+      label,
+      confidence: label === "issue" ? 0.75 : label === "not_issue" ? 0.85 : 0.4,
+      title: label === "not_issue" ? "" : statement.slice(0, 28),
+      description: label === "not_issue" ? "" : statement,
+      severity_estimate: label === "issue" ? (severity === "high" ? "高" : "中") : "不明",
+      severity,
+      reasons: [
+        issueHits.length ? `課題を示す語: ${issueHits.join("、")}` : "",
+        reportHits.length ? `報告を示す語: ${reportHits.join("、")}` : "",
+      ].filter(Boolean),
+      related_task_candidates: [],
+      split: statements.length > 1,
+      source: "rules",
+    };
+  });
+}
+
 function parseQuery(path: string): [string, URLSearchParams] {
   const [base, search] = path.split("?");
   return [base, new URLSearchParams(search ?? "")];
@@ -537,6 +592,62 @@ export function handleMock<T>(path: string, init?: RequestInit): Promise<T> {
     });
     refresh(projectId);
     return asAny({ updated_tasks: (body.assignments ?? []).length, created_categories: created, skipped: [] });
+  }
+
+  // ---- 課題インポートの自動判定 -------------------------------------------
+  if (route === "/api/imports/issue-rows") {
+    return asAny({
+      text_column: "課題・気になること",
+      available_columns: IMPORT_SAMPLE.columns,
+      rows: MOCK_ISSUE_ROWS,
+    });
+  }
+  if (route === "/api/issues/analyze") {
+    const rows: { row_index?: number; text: string }[] = body.rows ?? MOCK_ISSUE_ROWS;
+    const items = rows.flatMap((row, index) => triageMock(row.text, row.row_index ?? index));
+    const counts = {
+      issue: items.filter((i) => i.label === "issue").length,
+      uncertain: items.filter((i) => i.label === "uncertain").length,
+      not_issue: items.filter((i) => i.label === "not_issue").length,
+    };
+    return asAny({
+      llm_used: false,
+      llm_note: "デモモードのため、簡易なキーワード判定の結果を表示しています。",
+      counts,
+      items,
+    });
+  }
+  if (route === "/api/issues/bulk_create") {
+    const items: { title: string; description?: string; severity?: string; task_id?: number | null }[] =
+      body.items ?? [];
+    const ids: number[] = [];
+    items.forEach((item) => {
+      const task = data.tasks.find((t) => t.id === item.task_id);
+      const id = data.sequence++;
+      ids.push(id);
+      data.issues.push({
+        id,
+        project_id: body.project_id,
+        code: `I-${String(data.issues.length + 1).padStart(3, "0")}`,
+        task_id: task?.id ?? null,
+        task_title: task?.title ?? null,
+        task_category: task?.category ?? null,
+        title: item.title,
+        description: item.description ?? null,
+        severity: (item.severity as Issue["severity"]) ?? "medium",
+        owner_id: null,
+        owner_name: null,
+        raised_on: isoDate(0),
+        due_date: null,
+        status: "open",
+        action_plan: null,
+        resolution: null,
+        is_overdue: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    });
+    return asAny({ created: ids.length, issue_ids: ids, skipped: [] });
   }
 
   // ---- imports -----------------------------------------------------------

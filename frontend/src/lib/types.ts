@@ -315,3 +315,56 @@ export interface ImportPlan {
   rows: ImportRowPlan[];
   missing_in_file: { task_id: number; title: string }[];
 }
+
+// --- 課題インポートの自動判定 ------------------------------------------------
+export type TriageLabel = "issue" | "uncertain" | "not_issue";
+export type SeverityEstimate = "高" | "中" | "低" | "不明";
+
+export interface TriageTaskCandidate {
+  task_id: number | null;
+  title: string;
+  score: number;
+}
+
+export interface TriageItem {
+  id: string;
+  row_index: number | null;
+  part_index: number;
+  source_text: string;
+  statement: string;
+  label: TriageLabel;
+  confidence: number;
+  title: string;
+  description: string;
+  severity_estimate: SeverityEstimate;
+  severity: Severity;
+  reasons: string[];
+  related_task_candidates: TriageTaskCandidate[];
+  split: boolean;
+  source: string;
+}
+
+export interface IssueAnalyzeResponse {
+  llm_used: boolean;
+  llm_note: string | null;
+  counts: Record<string, number>;
+  items: TriageItem[];
+}
+
+export interface IssueBulkCreateResult {
+  created: number;
+  issue_ids: number[];
+  skipped: string[];
+}
+
+export interface ImportIssueRow {
+  row_index: number | null;
+  text: string;
+  task_hint: string | null;
+}
+
+export interface ImportIssueRowsResponse {
+  text_column: string | null;
+  rows: ImportIssueRow[];
+  available_columns: string[];
+}

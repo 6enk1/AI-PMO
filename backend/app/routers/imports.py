@@ -57,6 +57,17 @@ def plan(payload: schemas.ImportCommitRequest, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/issue-rows", response_model=schemas.ImportIssueRowsResponse)
+def issue_rows(payload: schemas.ImportIssueRowsRequest) -> schemas.ImportIssueRowsResponse:
+    """課題列の自由記述を全行取り出す（/api/issues/analyze への入力用）。"""
+    try:
+        return schemas.ImportIssueRowsResponse(**excel.issue_rows(payload))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/commit", response_model=schemas.ImportCommitResponse)
 def commit(payload: schemas.ImportCommitRequest, db: Session = Depends(get_db)) -> schemas.ImportCommitResponse:
     try:

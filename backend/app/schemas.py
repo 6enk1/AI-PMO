@@ -378,6 +378,91 @@ class AIPMOResponse(BaseModel):
     recommended_actions: list[Finding] = Field(default_factory=list)
 
 
+# --------------------------------------------------------------------------- Issue triage
+TriageLabel = Literal["issue", "uncertain", "not_issue"]
+SeverityEstimate = Literal["高", "中", "低", "不明"]
+
+
+class TriageTaskCandidate(BaseModel):
+    task_id: int | None = None
+    title: str
+    score: float
+
+
+class IssueAnalyzeRow(BaseModel):
+    """分析対象の1行。Excel以外の入力でも使えるよう、テキストだけを要求する。"""
+
+    row_index: int | None = None
+    text: str
+    task_hint: str | None = None
+
+
+class IssueAnalyzeRequest(BaseModel):
+    rows: list[IssueAnalyzeRow]
+    project_id: int | None = None  # 関連タスク候補の照合に使う
+    use_llm: bool = True
+
+
+class IssueTriageItem(BaseModel):
+    id: str
+    row_index: int | None = None
+    part_index: int = 0
+    source_text: str
+    statement: str
+    label: TriageLabel
+    confidence: float
+    title: str = ""
+    description: str = ""
+    severity_estimate: SeverityEstimate = "不明"
+    severity: Severity = "medium"
+    reasons: list[str] = Field(default_factory=list)
+    related_task_candidates: list[TriageTaskCandidate] = Field(default_factory=list)
+    split: bool = False
+    source: str = "rules"
+
+
+class IssueAnalyzeResponse(BaseModel):
+    llm_used: bool = False
+    llm_note: str | None = None
+    counts: dict[str, int] = Field(default_factory=dict)
+    items: list[IssueTriageItem] = Field(default_factory=list)
+
+
+class IssueBulkCreateItem(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    description: str | None = None
+    severity: Severity = "medium"
+    task_id: int | None = None
+    owner_id: int | None = None
+    due_date: date | None = None
+    status: IssueStatus = "open"
+
+
+class IssueBulkCreateRequest(BaseModel):
+    project_id: int
+    items: list[IssueBulkCreateItem]
+
+
+class IssueBulkCreateResponse(BaseModel):
+    created: int = 0
+    issue_ids: list[int] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+
+
+class ImportIssueRowsRequest(BaseModel):
+    token: str
+    sheet: str | None = None
+    header_row: int | None = None
+    mapping: dict[str, str | None] = Field(default_factory=dict)
+    text_column: str | None = None  # 未指定なら mapping の課題列を使う
+
+
+class ImportIssueRowsResponse(BaseModel):
+    text_column: str | None = None
+    rows: list[IssueAnalyzeRow] = Field(default_factory=list)
+    available_columns: list[str] = Field(default_factory=list)
+
+
 # --------------------------------------------------------------------------- Categorize
 class CategorySuggestion(BaseModel):
     task_id: int

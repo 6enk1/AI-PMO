@@ -1,23 +1,28 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useProjects } from "@/components/ProjectProvider";
 import { Badge, Card, ErrorBanner, Field, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { STATUS_LABELS } from "@/lib/format";
+import { TRIAGE_CONTEXT_KEY } from "@/lib/triage";
 import type { ImportAnalyze, ImportPlan, ImportResult, MatchBy, TaskStatus } from "@/lib/types";
 
 const REQUIRED_FIELD = "title";
 
+type IssueMode = "triage" | "raw" | "skip";
+
 export default function ImportPage() {
+  const router = useRouter();
   const { projects, selectProject, reloadProjects } = useProjects();
   const [analysis, setAnalysis] = useState<ImportAnalyze | null>(null);
   const [mapping, setMapping] = useState<Record<string, string | null>>({});
   const [target, setTarget] = useState<"new" | "existing">("new");
   const [projectName, setProjectName] = useState("");
   const [existingProjectId, setExistingProjectId] = useState("");
-  const [createIssues, setCreateIssues] = useState(true);
+  const [issueMode, setIssueMode] = useState<IssueMode>("triage");
   const [matchBy, setMatchBy] = useState<MatchBy>("auto");
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [busy, setBusy] = useState(false);
@@ -65,7 +70,7 @@ export default function ImportPage() {
       mapping,
       project_id: target === "existing" && existingProjectId ? Number(existingProjectId) : null,
       new_project_name: target === "new" ? projectName || analysis.filename : null,
-      create_issues: createIssues,
+      create_issues: issueMode === "raw",
       match_by: target === "existing" ? matchBy : "none",
     };
   }
@@ -100,6 +105,22 @@ export default function ImportPage() {
       const committed = await api.commitImport(importPayload()!);
       setResult(committed);
       setPlan(null);
+
+      // 自由記述の課題列は、そのまま登録せず判定プレビューへ送る
+      if (issueMode === "triage" && analysis && mapping.issue) {
+        window.sessionStorage.setItem(
+          TRIAGE_CONTEXT_KEY,
+          JSON.stringify({
+            token: analysis.token,
+            sheet: analysis.selected_sheet,
+            header_row: analysis.header_row,
+            mapping,
+            project_id: committed.project_id,
+            project_name: committed.project_name,
+          }),
+        );
+        router.push("/import/issues");
+      }
       await reloadProjects();
       selectProject(committed.project_id);
     } catch (err) {
@@ -323,14 +344,17 @@ export default function ImportPage() {
                   </select>
                 </Field>
               )}
-              <label className="flex items-center gap-2 pb-2 text-xs text-ink-600">
-                <input
-                  type="checkbox"
-                  checked={createIssues}
-                  onChange={(event) => setCreateIssues(event.target.checked)}
-                />
-                課題列からIssueを自動作成する
-              </label>
+              <Field label="課題列の扱い">
+                <select
+                  className="input"
+                  value={issueMode}
+                  onChange={(event) => setIssueMode(event.target.value as IssueMode)}
+                >
+                  <option value="triage">AIで判定してから登録（推奨）</option>
+                  <option value="raw">そのまま全行をIssueにする</option>
+                  <option value="skip">取り込まない</option>
+                </select>
+              </Field>
               {target === "existing" && (
                 <button className="btn-secondary mb-0.5" onClick={() => void checkDiff()} disabled={busy}>
                   差分を確認
@@ -341,6 +365,12 @@ export default function ImportPage() {
               </button>
             </div>
 
+            {issueMode === "triage" && (
+              <p className="mt-3 text-xs text-ink-500">
+                課題列は自由記述を想定し、取り込み後に<strong>課題分析プレビュー</strong>へ移動します。
+                そこで「課題 / 要確認 / 課題ではない」の判定を確認・修正してから登録できます。
+              </p>
+            )}
             {target === "existing" && (
               <p className="mt-3 text-xs text-ink-500">
                 既存Taskと同じ Task ID / タスク名の行は<strong>更新</strong>され、無い行だけが追加されます。

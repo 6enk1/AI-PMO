@@ -149,6 +149,125 @@ def classify_tasks(
     return assignments, True, f"model={settings.openai_model}"
 
 
+TRIAGE_PROMPT = """あなたはPMOアシスタントです。クライアントが書いた雑多な文章から、
+対応が必要な「課題」だけを拾い上げ、登録できる形に整えます。
+
+ラベルの定義:
+- issue: 対応・意思決定を要する記述（遅れ、エラー、確認依頼、判断待ちなど）
+- uncertain: 課題らしいが対象や影響範囲が不明瞭で、人の確認が要るもの
+- not_issue: 進捗報告・感想・挨拶など、対応の必要がないもの
+
+厳守事項:
+1. 元の文章に無い情報を足さない。原因・影響・担当を推測して書かない。
+2. title は元の文章の語を使って20〜30文字に要約する。新しい固有名詞を作らない。
+3. description は元の文章を読みやすく整えるだけ。事実を変えない。
+4. related_task_candidates は与えられた existing_tasks の名前からのみ選ぶ。
+   関連が薄ければ空配列にする。無関係なタスクを挙げない。
+5. severity_estimate は 高 / 中 / 低 のいずれか。判断材料が弱ければ 不明 とする。
+6. 迷ったら issue ではなく uncertain にする。取りこぼしより誤登録を避ける。
+7. 1つの入力に複数の課題が含まれる場合は、items を複数返して分割する。
+   分割できないときは1件のままでよい。
+
+出力はJSONのみ。"""
+
+TRIAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string", "enum": ["issue", "uncertain", "not_issue"]},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "severity_estimate": {"type": "string", "enum": ["高", "中", "低", "不明"]},
+                    "confidence": {"type": "number"},
+                    "reason": {"type": "string"},
+                    "related_task_titles": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": [
+                    "id", "label", "title", "description",
+                    "severity_estimate", "confidence", "reason", "related_task_titles",
+                ],
+            },
+        }
+    },
+    "required": ["items"],
+}
+
+
+def triage_statements(
+    statements: list[dict[str, Any]], existing_tasks: list[str]
+) -> tuple[dict[str, list[dict[str, Any]]], bool, str | None]:
+    """自由記述の分類・整形をLLMに任せる。
+
+    戻り値は (入力id -> 出力items, llm_used, note)。失敗時は空dictを返し、
+    呼び出し側はルールベースの結果をそのまま使う。
+    """
+    if not statements:
+        return {}, False, None
+    if not settings.llm_available:
+        return (
+            {},
+            False,
+            "OPENAI_API_KEY が未設定のため、キーワード辞書によるルールベース判定を使用しています。",
+        )
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=settings.openai_api_key, timeout=90.0)
+        response = client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[
+                {"role": "system", "content": TRIAGE_PROMPT},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"existing_tasks": existing_tasks[:200], "inputs": statements},
+                        ensure_ascii=False,
+                        default=str,
+                    ),
+                },
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "issue_triage", "schema": TRIAGE_SCHEMA, "strict": True},
+            },
+            temperature=0.1,
+        )
+        data = json.loads(response.choices[0].message.content or "{}")
+    except Exception as exc:  # pragma: no cover - network dependent
+        logger.warning("LLM triage failed, falling back to rules: %s", exc)
+        return {}, False, f"LLM呼び出しに失敗したため、ルールベース判定を表示しています（{type(exc).__name__}）。"
+
+    allowed = {t for t in existing_tasks}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in data.get("items", []):
+        key = str(item.get("id") or "")
+        if not key:
+            continue
+        label = item.get("label")
+        if label not in ("issue", "uncertain", "not_issue"):
+            continue
+        grouped.setdefault(key, []).append(
+            {
+                "label": label,
+                "title": str(item.get("title") or "")[:300],
+                "description": str(item.get("description") or "")[:4000],
+                "severity_estimate": item.get("severity_estimate") or "不明",
+                "confidence": round(max(0.0, min(1.0, float(item.get("confidence") or 0.5))), 2),
+                "reason": str(item.get("reason") or "")[:400],
+                # 実在するタスク名しか通さない
+                "related_task_titles": [t for t in item.get("related_task_titles", []) if t in allowed],
+            }
+        )
+    return grouped, True, f"model={settings.openai_model}"
+
+
 @dataclass
 class LLMResult:
     findings: list[RawFinding]

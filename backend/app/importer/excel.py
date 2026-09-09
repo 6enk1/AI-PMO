@@ -690,3 +690,28 @@ def commit_import(db: Session, request) -> dict[str, Any]:
         "skipped_rows": skipped,
         "warnings": warnings[:20],
     }
+
+def issue_rows(request) -> dict[str, Any]:
+    """課題列（自由記述）の全行テキストを取り出す。分類はここでは行わない。"""
+    path, _ = resolve_upload(request.token)
+    frame, _, _ = load_frame(path, request.sheet, request.header_row)
+    columns = [str(c) for c in frame.columns]
+
+    mapping = {k: (v or None) for k, v in (request.mapping or {}).items()}
+    if not mapping:
+        mapping, _ = guess_mapping(columns)
+    column = request.text_column or mapping.get("issue")
+    if column and column not in columns:
+        column = None
+    title_column = mapping.get("title")
+
+    rows: list[dict[str, Any]] = []
+    if column:
+        for index, (_, raw_row) in enumerate(frame.iterrows()):
+            text = vp.clean_str(raw_row.get(column))
+            if not text:
+                continue
+            hint = vp.clean_str(raw_row.get(title_column)) if title_column in columns else None
+            rows.append({"row_index": index, "text": text, "task_hint": hint})
+
+    return {"text_column": column, "rows": rows, "available_columns": columns}

@@ -2,7 +2,10 @@ import type {
   AIPMOResponse,
   CategoryApplyResult,
   CategorySuggestResponse,
+  ImportIssueRowsResponse,
   ImportPlan,
+  IssueAnalyzeResponse,
+  IssueBulkCreateResult,
   Dashboard,
   ImportAnalyze,
   ImportResult,
@@ -116,6 +119,23 @@ export const api = {
     request<{ llm_available: boolean; model: string | null; note: string }>(
       `/api/projects/${projectId}/llm-status`,
     ),
+
+  // 課題インポートの自動判定
+  importIssueRows: (payload: Record<string, unknown>) =>
+    request<ImportIssueRowsResponse>("/api/imports/issue-rows", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  analyzeIssues: (payload: Record<string, unknown>) =>
+    request<IssueAnalyzeResponse>("/api/issues/analyze", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  bulkCreateIssues: (projectId: number, items: Record<string, unknown>[]) =>
+    request<IssueBulkCreateResult>("/api/issues/bulk_create", {
+      method: "POST",
+      body: JSON.stringify({ project_id: projectId, items }),
+    }),
 
   // categories
   suggestCategories: (projectId: number, params: Record<string, unknown> = {}) =>
