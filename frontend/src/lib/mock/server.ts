@@ -226,6 +226,14 @@ function buildAiPmo(projectId: number): AIPMOResponse {
 }
 
 const IMPORT_SAMPLE: ImportAnalyze = {
+  content_kind: "mixed",
+  content_confidence: 0.8,
+  content_evidence: [
+    "タスク用の列に値がある: 開始予定日、終了予定日、進捗率、Status",
+    "課題列「課題」に 3 行の記述（うち 3 行は自由記述）",
+  ],
+  has_task_data: true,
+  has_issue_text: true,
   token: "mock-token",
   filename: "wbs_sample_v1.xlsx",
   sheets: [{ name: "WBS", row_count: 27, header_row: 3, columns: [] }],

@@ -170,6 +170,10 @@ export default function IssueTriagePage() {
     );
   }
 
+  const uncheckedUncertain = items.filter(
+    (item) => item.label === "uncertain" && !checked.has(item.id),
+  ).length;
+
   const counts = {
     issue: items.filter((item) => item.label === "issue").length,
     uncertain: items.filter((item) => item.label === "uncertain").length,
@@ -201,6 +205,33 @@ export default function IssueTriagePage() {
         </div>
       </header>
 
+      <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+        <p className="font-medium">
+          チェックを入れた行だけが、Issue管理に登録されます。
+        </p>
+        <p className="mt-1 text-xs">
+          課題名・詳細・関連タスク・重要度はこの画面で修正できます。修正した内容で登録されます。
+          登録するまで、Issue管理には何も追加されません。
+        </p>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden>✅</span>
+            <Badge className={LABEL_META.issue.className}>課題</Badge>
+            {LABEL_META.issue.hint}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden>⚠️</span>
+            <Badge className={LABEL_META.uncertain.className}>要確認</Badge>
+            {LABEL_META.uncertain.hint}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span aria-hidden>❌</span>
+            <Badge className={LABEL_META.not_issue.className}>課題ではない</Badge>
+            {LABEL_META.not_issue.hint}
+          </span>
+        </div>
+      </div>
+
       {note && <p className="text-xs text-ink-500">{note}</p>}
       {error && <ErrorBanner message={error} />}
 
@@ -226,9 +257,9 @@ export default function IssueTriagePage() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="課題" value={counts.issue} tone={counts.issue ? "danger" : "default"} hint="既定でチェック済み" />
-        <StatCard label="要確認" value={counts.uncertain} tone={counts.uncertain ? "warn" : "default"} hint="目視確認が必要" />
-        <StatCard label="課題ではない" value={counts.not_issue} hint="既定で非表示・登録しません" />
+        <StatCard label="課題" value={counts.issue} tone={counts.issue ? "danger" : "default"} hint="チェック済み・このまま登録されます" />
+        <StatCard label="要確認" value={counts.uncertain} tone={counts.uncertain ? "warn" : "default"} hint="未チェック・見て判断してください" />
+        <StatCard label="課題ではない" value={counts.not_issue} hint="非表示・登録されません" />
       </div>
 
       <Card>
@@ -418,12 +449,23 @@ export default function IssueTriagePage() {
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <p className="mr-auto text-xs text-ink-500">
+          {checked.size === 0 ? (
+            "登録する行にチェックを入れてください。"
+          ) : (
+            <>
+              チェックした <strong className="text-ink-900">{checked.size} 件</strong>を
+              「{context.project_name}」の Issue管理に登録します
+              {uncheckedUncertain > 0 && `（要確認 ${uncheckedUncertain} 件は未チェックのまま登録されません）`}。
+            </>
+          )}
+        </p>
         <Link href="/import" className="btn-secondary">
           Import画面へ戻る
         </Link>
         <button className="btn-primary" onClick={() => void apply()} disabled={saving || checked.size === 0}>
-          {saving ? "登録中…" : `${checked.size} 件をIssueとして反映`}
+          {saving ? "登録中…" : `チェックした ${checked.size} 件を登録`}
         </button>
       </div>
     </div>

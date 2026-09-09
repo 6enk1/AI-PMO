@@ -277,3 +277,10 @@ def test_a_mixed_sentence_with_strong_evidence_is_an_issue():
     result = classify_statement("環境構築は完了しましたが、ログインでエラーが出ていて検証が進められません", TASKS)
     assert result.label == "issue"
     assert any("混在" in reason for reason in result.reasons)
+
+
+def test_more_negative_forms_are_covered():
+    assert classify_statement("帳票の出力仕様が決まっておらず、実装に進めない状態です", TASKS).label == "issue"
+    assert classify_statement("要件が未確定のままです", TASKS).label == "issue"
+    # 報告側を巻き込まないこと
+    assert classify_statement("予定通り進んでいます", TASKS).label == "not_issue"

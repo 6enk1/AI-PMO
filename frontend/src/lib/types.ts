@@ -228,7 +228,14 @@ export interface ImportSheetInfo {
   columns: string[];
 }
 
+export type ContentKind = "wbs" | "issues" | "mixed" | "unknown";
+
 export interface ImportAnalyze {
+  content_kind: ContentKind;
+  content_confidence: number;
+  content_evidence: string[];
+  has_task_data: boolean;
+  has_issue_text: boolean;
   token: string;
   filename: string;
   sheets: ImportSheetInfo[];

@@ -515,7 +515,16 @@ class ImportSheetInfo(BaseModel):
     columns: list[str]
 
 
+ContentKind = Literal["wbs", "issues", "mixed", "unknown"]
+
+
 class ImportAnalyzeResponse(BaseModel):
+    # アップロードされた中身の判定（画面の出し分けに使う）
+    content_kind: ContentKind = "unknown"
+    content_confidence: float = 0.0
+    content_evidence: list[str] = Field(default_factory=list)
+    has_task_data: bool = False
+    has_issue_text: bool = False
     token: str
     filename: str
     sheets: list[ImportSheetInfo]
@@ -543,6 +552,8 @@ class ImportCommitRequest(BaseModel):
     new_project_name: str | None = None
     create_missing_people: bool = True
     create_issues: bool = True
+    create_tasks: bool = True
+    """課題リストだけのファイルでは False にして、Taskを作らずプロジェクトだけ用意する。"""
     match_by: MatchBy = "auto"
     """既存Taskとの突き合わせ方法。auto=Task ID→タスク名の順、none=常に追加。"""
 

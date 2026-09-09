@@ -173,6 +173,14 @@ def analyze_upload(
     columns = [str(c) for c in frame.columns]
     mapping, candidates = guess_mapping(columns)
 
+    # 列名で拾えなかった自由記述列を課題列として補完する
+    auto_issue_column = None
+    if not mapping.get("issue"):
+        used_columns = {c for c in mapping.values() if c}
+        auto_issue_column = find_free_text_column(frame, used_columns)
+        if auto_issue_column:
+            mapping["issue"] = auto_issue_column
+
     sheet_infos = []
     for name in sheets:
         try:
@@ -206,6 +214,10 @@ def analyze_upload(
     ]
 
     warnings: list[str] = []
+    if auto_issue_column:
+        warnings.append(
+            f"「{auto_issue_column}」列は自由記述に見えたため、課題列として扱います（列マッピングで変更できます）。"
+        )
     if not mapping.get("title"):
         warnings.append("タスク名の列を特定できませんでした。列マッピングで指定してください。")
     if not mapping.get("planned_end"):
@@ -216,7 +228,9 @@ def analyze_upload(
         warnings.append("データ行が0件です。ヘッダー行の指定を見直してください。")
 
     used = {c for c in mapping.values() if c}
+    detected = detect_content(frame, mapping)
     return {
+        **detected,
         "token": token,
         "filename": filename,
         "sheets": sheet_infos,
@@ -498,6 +512,23 @@ def commit_import(db: Session, request) -> dict[str, Any]:
     by_code, by_title = _index_tasks(existing_tasks)
 
     rows, skipped = _parse_rows(frame, mapping)
+    if not getattr(request, "create_tasks", True):
+        # 課題リストだけのファイル。プロジェクトを用意して、あとは課題分析へ渡す。
+        db.commit()
+        return {
+            "project_id": project.id,
+            "project_name": project.name,
+            "match_by": match_by,
+            "created_tasks": 0,
+            "updated_tasks": 0,
+            "unchanged_tasks": 0,
+            "created_people": 0,
+            "created_issues": 0,
+            "created_dependencies": 0,
+            "created_milestones": 0,
+            "skipped_rows": skipped,
+            "warnings": ["課題リストとして取り込んだため、Taskは作成していません。"],
+        }
 
     touched: list[Task] = []
     created_tasks = 0
@@ -715,3 +746,101 @@ def issue_rows(request) -> dict[str, Any]:
             rows.append({"row_index": index, "text": text, "task_hint": hint})
 
     return {"text_column": column, "rows": rows, "available_columns": columns}
+
+# --------------------------------------------------------------------------- 内容判定
+TASK_SIGNAL_FIELDS = (
+    "planned_start", "planned_end", "actual_start", "actual_end",
+    "progress", "status", "priority", "dependency", "owner", "estimated_hours", "code",
+)
+FREE_TEXT_MIN_LENGTH = 12  # これ以上の長さなら「自由記述」とみなす
+# 連番（No列）はどんな表にもあるので、WBSの根拠としては弱い
+WEAK_TASK_FIELDS = ("code",)
+
+
+def find_free_text_column(frame: pd.DataFrame, used: set[str]) -> str | None:
+    """列名で判別できなかった自由記述列を、中身の長さから探す。
+
+    先方が作る課題リストは列名が独特（「気になっていること」など）なので、
+    辞書に無い名前でも拾えるようにしておく。
+    """
+    best: tuple[str, float] | None = None
+    for column in frame.columns:
+        name = str(column)
+        if name in used:
+            continue
+        values = [vp.clean_str(value) or "" for value in frame[name]]
+        values = [v for v in values if v]
+        if len(values) < 2:
+            continue
+        long_values = [v for v in values if len(v) >= FREE_TEXT_MIN_LENGTH]
+        if len(long_values) < 2:
+            continue
+        score = sum(len(v) for v in long_values) / len(values)
+        if best is None or score > best[1]:
+            best = (name, score)
+    return best[0] if best else None
+
+
+def detect_content(frame: pd.DataFrame, mapping: dict[str, str | None]) -> dict[str, Any]:
+    """アップロードされた中身が WBS か課題リストかを判定する。
+
+    ヘッダーの有無だけでなく、実際に値が入っているかまで見る。列名だけ揃っていて
+    中身が空の表で誤判定しないため。判断がつかないときは unknown を返し、
+    画面側でユーザーに一言確認してもらう。
+    """
+    evidence: list[str] = []
+
+    def filled(column: str | None) -> int:
+        if not column or column not in frame.columns:
+            return 0
+        return sum(1 for value in frame[column] if vp.clean_str(value))
+
+    task_fields = [f for f in TASK_SIGNAL_FIELDS if mapping.get(f) and filled(mapping[f]) > 0]
+    strong_task_fields = [f for f in task_fields if f not in WEAK_TASK_FIELDS]
+    if task_fields:
+        labels = [FIELD_LABELS.get(f, f) for f in task_fields]
+        evidence.append("タスク用の列に値がある: " + "、".join(labels[:5]))
+
+    issue_column = mapping.get("issue")
+    issue_texts = (
+        [vp.clean_str(value) or "" for value in frame[issue_column]]
+        if issue_column and issue_column in frame.columns
+        else []
+    )
+    issue_texts = [t for t in issue_texts if t]
+    long_issue_texts = [t for t in issue_texts if len(t) >= FREE_TEXT_MIN_LENGTH]
+    if issue_texts:
+        evidence.append(
+            f"課題列「{issue_column}」に {len(issue_texts)} 行の記述"
+            + (f"（うち {len(long_issue_texts)} 行は自由記述）" if long_issue_texts else "")
+        )
+
+    # 課題列が無くても、タスク名の列が長文だけで構成されていれば課題リストとみなす
+    title_column = mapping.get("title")
+    title_texts = [vp.clean_str(value) or "" for value in frame[title_column]] if title_column in frame.columns else []
+    title_texts = [t for t in title_texts if t]
+    long_titles = [t for t in title_texts if len(t) >= 25]
+    title_is_prose = bool(title_texts) and len(long_titles) / len(title_texts) >= 0.5
+    if title_is_prose and not strong_task_fields:
+        evidence.append(f"「{title_column}」列が長文中心で、タスク名というより記述に見える")
+
+    has_task_data = len(strong_task_fields) >= 2
+    has_issue_text = bool(long_issue_texts) or (title_is_prose and not strong_task_fields)
+
+    if has_task_data and has_issue_text:
+        kind, confidence = "mixed", 0.8
+    elif has_task_data:
+        kind, confidence = "wbs", 0.9 if len(strong_task_fields) >= 3 else 0.7
+    elif has_issue_text:
+        kind, confidence = "issues", 0.8 if long_issue_texts else 0.6
+    else:
+        kind, confidence = "unknown", 0.3
+        evidence.append("タスク用の列も自由記述の課題列も判別できなかった")
+
+    return {
+        "content_kind": kind,
+        "content_confidence": round(confidence, 2),
+        "content_evidence": evidence,
+        "has_task_data": has_task_data,
+        "has_issue_text": has_issue_text,
+    }

@@ -26,7 +26,12 @@ FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
     "status": ("ステータス", "状態", "status", "進捗状況", "state", "対応状況", "作業状態", "進行状況"),
     "priority": ("優先度", "優先順位", "プライオリティ", "priority", "重要度", "importance", "ランク"),
     "dependency": ("依存関係", "依存", "先行タスク", "先行", "前工程", "predecessor", "predecessors", "depends on", "dependency", "前提タスク", "先行作業"),
-    "issue": ("課題", "課題内容", "問題", "問題点", "issue", "issues", "懸念", "懸念事項", "リスク", "risk", "問題事項"),
+    "issue": (
+        "課題", "課題内容", "課題・懸念", "問題", "問題点", "問題事項", "issue", "issues",
+        "懸念", "懸念事項", "懸念点", "リスク", "risk",
+        "気になっていること", "気になること", "気になる点", "困っていること", "困りごと",
+        "相談事項", "申し送り", "指摘事項", "要望", "コメント欄",
+    ),
     "notes": ("備考", "メモ", "note", "notes", "remarks", "コメント", "comment", "補足", "特記事項"),
     "milestone": ("マイルストーン", "milestone", "ms", "重要日程", "節目"),
     "estimated_hours": ("工数", "予定工数", "見積工数", "estimate", "estimated hours", "hours", "人日", "人時", "工数(h)", "工数(人日)", "作業量"),

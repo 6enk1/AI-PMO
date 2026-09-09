@@ -8,7 +8,14 @@ import { Badge, Card, ErrorBanner, Field, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { STATUS_LABELS } from "@/lib/format";
 import { TRIAGE_CONTEXT_KEY } from "@/lib/triage";
-import type { ImportAnalyze, ImportPlan, ImportResult, MatchBy, TaskStatus } from "@/lib/types";
+import type {
+  ContentKind,
+  ImportAnalyze,
+  ImportPlan,
+  ImportResult,
+  MatchBy,
+  TaskStatus,
+} from "@/lib/types";
 
 const REQUIRED_FIELD = "title";
 
@@ -23,6 +30,8 @@ export default function ImportPage() {
   const [projectName, setProjectName] = useState("");
   const [existingProjectId, setExistingProjectId] = useState("");
   const [issueMode, setIssueMode] = useState<IssueMode>("triage");
+  // 自動判定がつかないファイルだけ、ユーザーに種類を選んでもらう
+  const [kindOverride, setKindOverride] = useState<ContentKind | null>(null);
   const [matchBy, setMatchBy] = useState<MatchBy>("auto");
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,6 +46,8 @@ export default function ImportPage() {
       const analyzed = await api.analyzeImport(file);
       setAnalysis(analyzed);
       setPlan(null);
+      setKindOverride(null);
+      setIssueMode(analyzed.has_issue_text ? "triage" : "skip");
       setMapping(analyzed.mapping);
       setProjectName(file.name.replace(/\.[^.]+$/, ""));
     } catch (err) {
@@ -61,6 +72,11 @@ export default function ImportPage() {
     }
   }
 
+  // 自動判定 → ユーザーの手動指定があればそちらを優先
+  const kind: ContentKind = kindOverride ?? analysis?.content_kind ?? "unknown";
+  const showTaskSettings = kind === "wbs" || kind === "mixed";
+  const showIssueSettings = kind === "issues" || kind === "mixed";
+
   function importPayload() {
     if (!analysis) return null;
     return {
@@ -71,6 +87,7 @@ export default function ImportPage() {
       project_id: target === "existing" && existingProjectId ? Number(existingProjectId) : null,
       new_project_name: target === "new" ? projectName || analysis.filename : null,
       create_issues: issueMode === "raw",
+      create_tasks: kind !== "issues",
       match_by: target === "existing" ? matchBy : "none",
     };
   }
@@ -107,7 +124,7 @@ export default function ImportPage() {
       setPlan(null);
 
       // 自由記述の課題列は、そのまま登録せず判定プレビューへ送る
-      if (issueMode === "triage" && analysis && mapping.issue) {
+      if (issueMode === "triage" && showIssueSettings && analysis && mapping.issue) {
         window.sessionStorage.setItem(
           TRIAGE_CONTEXT_KEY,
           JSON.stringify({
@@ -166,7 +183,72 @@ export default function ImportPage() {
 
       {analysis && (
         <>
-          <Card title="2. シートとヘッダー行">
+          <Card title="2. このファイルの内容">
+            {kind === "unknown" && !kindOverride ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  このファイルがWBS（タスク一覧）か課題リストか判別できませんでした。
+                </p>
+                <p className="mt-1 text-xs text-amber-800">
+                  どちらか教えてください。選んだ内容に応じて、必要な設定だけを表示します。
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="btn-secondary" onClick={() => setKindOverride("wbs")}>
+                    WBS（タスク一覧）
+                  </button>
+                  <button className="btn-secondary" onClick={() => setKindOverride("issues")}>
+                    課題リスト
+                  </button>
+                  <button className="btn-secondary" onClick={() => setKindOverride("mixed")}>
+                    両方入っている
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={
+                        kind === "issues"
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                          : kind === "mixed"
+                            ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                            : "border-sky-200 bg-sky-50 text-sky-800"
+                      }
+                    >
+                      {kind === "wbs" ? "WBS（タスク一覧）" : kind === "issues" ? "課題リスト" : "タスク＋課題"}
+                      {kindOverride && "（手動指定）"}
+                    </Badge>
+                    <span className="text-xs text-ink-400">
+                      {kind === "wbs"
+                        ? "タスクとして取り込みます"
+                        : kind === "issues"
+                          ? "Taskは作らず、課題分析プレビューへ進みます"
+                          : "タスクを取り込み、課題列は判定にかけます"}
+                    </span>
+                  </div>
+                  {analysis.content_evidence.length > 0 && (
+                    <ul className="mt-2 space-y-0.5">
+                      {analysis.content_evidence.map((line, index) => (
+                        <li key={index} className="text-[11px] text-ink-400">
+                          ・{line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <button
+                  className="text-xs text-ink-400 hover:text-ink-700"
+                  onClick={() => setKindOverride(kind === "wbs" ? "issues" : kind === "issues" ? "wbs" : "wbs")}
+                >
+                  判定を変更する
+                </button>
+              </div>
+            )}
+          </Card>
+
+          <Card title="3. シートとヘッダー行">
             <div className="flex flex-wrap items-end gap-4">
               <Field label="シート">
                 <select
@@ -205,7 +287,7 @@ export default function ImportPage() {
             )}
           </Card>
 
-          <Card title="3. 列マッピング">
+          <Card title="4. 列マッピング">
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {analysis.known_fields.map((field) => {
                 const candidate = analysis.mapping_candidates.find((item) => item.field === field.field);
@@ -250,7 +332,7 @@ export default function ImportPage() {
             )}
           </Card>
 
-          <Card title="4. プレビュー（変換後）">
+          <Card title="5. プレビュー（変換後）">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px]">
                 <thead className="bg-slate-50">
@@ -291,7 +373,7 @@ export default function ImportPage() {
             </div>
           </Card>
 
-          <Card title="5. 取り込み先とImport実行">
+          <Card title="6. 取り込み先とImport実行">
             <div className="flex flex-wrap items-end gap-4">
               <Field label="取り込み先">
                 <select
@@ -327,7 +409,7 @@ export default function ImportPage() {
                   </select>
                 </Field>
               )}
-              {target === "existing" && (
+              {target === "existing" && showTaskSettings && (
                 <Field label="既存Taskとの突き合わせ">
                   <select
                     className="input"
@@ -344,6 +426,7 @@ export default function ImportPage() {
                   </select>
                 </Field>
               )}
+              {showIssueSettings && (
               <Field label="課題列の扱い">
                 <select
                   className="input"
@@ -355,7 +438,8 @@ export default function ImportPage() {
                   <option value="skip">取り込まない</option>
                 </select>
               </Field>
-              {target === "existing" && (
+              )}
+              {target === "existing" && showTaskSettings && (
                 <button className="btn-secondary mb-0.5" onClick={() => void checkDiff()} disabled={busy}>
                   差分を確認
                 </button>
@@ -371,14 +455,20 @@ export default function ImportPage() {
                 そこで「課題 / 要確認 / 課題ではない」の判定を確認・修正してから登録できます。
               </p>
             )}
-            {target === "existing" && (
+            {kind === "issues" && (
+              <p className="mt-3 text-xs text-ink-500">
+                課題リストと判定したため、<strong>Taskは作成しません</strong>。
+                取り込み先のプロジェクトを選ぶと、そのまま課題分析プレビューへ進みます。
+              </p>
+            )}
+            {target === "existing" && showTaskSettings && (
               <p className="mt-3 text-xs text-ink-500">
                 既存Taskと同じ Task ID / タスク名の行は<strong>更新</strong>され、無い行だけが追加されます。
                 空欄のセルは既存の値を上書きしません。
               </p>
             )}
 
-            {plan && (
+            {plan && showTaskSettings && (
               <div className="mt-4 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge className="border-sky-200 bg-sky-50 text-sky-800">更新 {plan.update_count} 件</Badge>
