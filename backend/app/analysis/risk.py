@@ -33,6 +33,11 @@ def score_task(snapshot: "ProjectSnapshot", view: "TaskView") -> tuple[float, li
         return 0.0, []
 
     factors: list[Factor] = []
+    # 進捗率を運用していないWBS（状態だけ管理）では、進捗0%を遅れの根拠にしない
+    tracks_progress = snapshot.tracks_progress()
+    progress_note = (
+        f"進捗 {view.progress:.0f}%" if tracks_progress else f"Status {view.status}"
+    )
 
     # 1. Already overdue - the strongest signal there is.
     if view.is_overdue:
@@ -41,12 +46,12 @@ def score_task(snapshot: "ProjectSnapshot", view: "TaskView") -> tuple[float, li
                 key="overdue",
                 label="期限超過",
                 points=_clamp(12 + 3.5 * view.days_overdue, 40),
-                detail=f"予定終了日 {view.planned_end} を {view.days_overdue} 日超過（進捗 {view.progress:.0f}%）",
+                detail=f"予定終了日 {view.planned_end} を {view.days_overdue} 日超過（{progress_note}）",
             )
         )
 
     # 2. Behind the linear burn-down.
-    gap = view.progress_gap
+    gap = view.progress_gap if tracks_progress else 0.0
     if gap > 5:
         factors.append(
             Factor(
@@ -65,7 +70,7 @@ def score_task(snapshot: "ProjectSnapshot", view: "TaskView") -> tuple[float, li
                 key="due_soon",
                 label="期限逼迫",
                 points=_clamp((8 - days_to_due) * 1.8 + (80 - view.progress) * 0.1, 18),
-                detail=f"残り {days_to_due} 日で進捗 {view.progress:.0f}%",
+                detail=f"残り {days_to_due} 日で{progress_note}",
             )
         )
 

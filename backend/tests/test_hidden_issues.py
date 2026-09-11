@@ -41,6 +41,29 @@ def test_due_soon_with_low_progress(db, project, factory):
     assert "due_soon_low_progress" in types_of(detect(db, project))
 
 
+def test_progress_rules_stay_quiet_when_the_wbs_has_no_progress_column(db, project, factory):
+    """進捗率を運用していないプロジェクトで、全Taskを「遅れ」と言わない。
+
+    状態（未着手/進行中/完了）だけを管理するWBSは珍しくない。その場合は全Taskが
+    0%として並ぶため、進捗ベースの指摘はノイズにしかならない。
+    """
+    person = factory.person("Bob")
+    factory.task("移行設計", owner_id=person.id, planned_start=day(-5), planned_end=day(2),
+                 status="in_progress", progress=0)
+    factory.task("環境構築", owner_id=person.id, planned_start=day(-20), planned_end=day(-10),
+                 status="done", progress=100)
+    found = types_of(detect(db, project))
+    assert "due_soon_low_progress" not in found
+    assert "progress_inconsistency" not in found
+
+    # 1件でも途中経過が入っていれば、進捗率を運用しているとみなして指摘する
+    factory.task("帳票設計", owner_id=person.id, planned_start=day(-10), planned_end=day(20),
+                 status="in_progress", progress=35)
+    found = types_of(detect(db, project))
+    assert "due_soon_low_progress" in found
+    assert "progress_inconsistency" in found
+
+
 def test_owner_missing(db, project, factory):
     factory.task("テスト計画", planned_start=day(1), planned_end=day(8), status="not_started")
     findings = [f for f in detect(db, project) if f.finding_type == "owner_missing"]

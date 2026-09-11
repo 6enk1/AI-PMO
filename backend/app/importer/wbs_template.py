@@ -31,7 +31,6 @@ HEADERS: tuple[tuple[str, int], ...] = (
     ("担当者", 12),
     ("開始予定日", 13),
     ("期限", 13),
-    ("進捗率", 9),
     ("状態", 12),
     ("先行タスク", 18),
     ("備考", 22),
@@ -49,6 +48,8 @@ BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 STATUSES = "未着手,進行中,完了,保留"
 
 # 記入例。1つのカテゴリに2行入れて、「ゴールはカテゴリの1行目だけ」を示す。
+# 進捗率の列は置いていない。計画を出してもらう時点では % は埋まらないし、
+# 「進行中」かどうかが分かれば足りる（％はAI PMO側で運用できる）。
 EXAMPLE_ROWS: tuple[tuple[object, ...], ...] = (
     (
         "例1",
@@ -59,7 +60,6 @@ EXAMPLE_ROWS: tuple[tuple[object, ...], ...] = (
         "山田",
         None,  # 日付は実行時に入れる
         None,
-        30,
         "進行中",
         "",
         "",
@@ -73,7 +73,6 @@ EXAMPLE_ROWS: tuple[tuple[object, ...], ...] = (
         "鈴木",
         None,
         None,
-        0,
         "未着手",
         "業務ヒアリング",
         "山田の作業完了後",
@@ -105,8 +104,8 @@ GUIDE_LINES: tuple[tuple[str, bool], ...] = (
     ("・タスクの詳細 … 作業内容・前提・成果物など、補足したいこと。", False),
     ("・担当者 … 氏名。未定なら空欄で構いません（複数なら「山田/鈴木」のように区切ってください）。", False),
     ("・開始予定日 / 期限 … 分かる範囲で。期限だけでも構いません（例: 2026/10/31）。", False),
-    ("・進捗率 … 0〜100の数字。未着手なら空欄か0。", False),
-    ("・状態 … 未着手 / 進行中 / 完了 / 保留 から選択。空欄なら進捗率から自動で判定します。", False),
+    ("・状態 … 未着手 / 進行中 / 完了 / 保留 から選択。空欄なら未着手として扱います。", False),
+    ("　（％での進捗率は書かなくて構いません。必要になったらAI PMOの画面で入れられます）", False),
     ("・先行タスク … このタスクの前に終わっている必要があるタスク名（複数なら「A, B」）。", False),
     ("・備考 … 補足があれば。", False),
     ("", False),
@@ -147,11 +146,14 @@ def build_wbs_template(today: date | None = None) -> Workbook:
     sheet.row_dimensions[header_row].height = 30
 
     # 記入例（グレー・斜体）。実データと見分けが付くようにしておく。
+    # 例2は例1の後続なので、日程も後ろに置く（そのまま取り込んでも矛盾を出さない）
+    example_dates = ((3, 14), (15, 25))
     for offset, values in enumerate(EXAMPLE_ROWS):
         row = header_row + 1 + offset
         example = list(values)
-        example[6] = (today + timedelta(days=3 + offset * 7)).strftime("%Y/%m/%d")
-        example[7] = (today + timedelta(days=14 + offset * 7)).strftime("%Y/%m/%d")
+        start_offset, end_offset = example_dates[offset]
+        example[6] = (today + timedelta(days=start_offset)).strftime("%Y/%m/%d")
+        example[7] = (today + timedelta(days=end_offset)).strftime("%Y/%m/%d")
         for index, value in enumerate(example, start=1):
             cell = sheet.cell(row=row, column=index, value=value)
             cell.font = Font(name=FONT, size=10, italic=True, color="7F7F7F")
@@ -179,15 +181,7 @@ def build_wbs_template(today: date | None = None) -> Workbook:
         DataValidation(
             type="list", formula1=f'"{STATUSES}"', allow_blank=True, showDropDown=False,
             promptTitle="状態",
-            prompt="未着手 / 進行中 / 完了 / 保留 から選んでください。空欄なら進捗率から自動判定します。",
-        ),
-        f"J{first_input}:J{last_input}",
-    )
-    add(
-        DataValidation(
-            type="whole", operator="between", formula1="0", formula2="100", allow_blank=True,
-            promptTitle="進捗率", prompt="0〜100の数字で入れてください（未着手なら空欄か0）。",
-            errorTitle="0〜100で入れてください", error="進捗率は0〜100の数字で入力してください。",
+            prompt="未着手 / 進行中 / 完了 / 保留 から選んでください。空欄なら未着手として扱います。",
         ),
         f"I{first_input}:I{last_input}",
     )

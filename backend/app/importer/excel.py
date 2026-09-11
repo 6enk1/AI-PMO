@@ -142,6 +142,10 @@ def mapped_row(row: pd.Series, mapping: dict[str, str | None]) -> dict[str, Any]
     """
     progress = vp.parse_progress(_cell(row, mapping, "progress"))
     status_cell = vp.clean_str(_cell(row, mapping, "status"))
+    status = vp.parse_status(status_cell, progress) if status_cell else None
+    # 進捗率の列が無いWBSでも「完了」は100%と言い切れる。それ以外は推測しない
+    if progress is None and status == "done":
+        progress = 100.0
     priority_cell = vp.clean_str(_cell(row, mapping, "priority"))
     return {
         "code": vp.clean_str(_cell(row, mapping, "code"), 40),
@@ -155,7 +159,7 @@ def mapped_row(row: pd.Series, mapping: dict[str, str | None]) -> dict[str, Any]
         "actual_start": vp.parse_date(_cell(row, mapping, "actual_start")),
         "actual_end": vp.parse_date(_cell(row, mapping, "actual_end")),
         "progress": progress,
-        "status": vp.parse_status(status_cell, progress) if status_cell else None,
+        "status": status,
         "priority": vp.parse_priority(priority_cell) if priority_cell else None,
         "dependency": vp.split_references(_cell(row, mapping, "dependency")),
         "issue": vp.clean_str(_cell(row, mapping, "issue"), 1000),

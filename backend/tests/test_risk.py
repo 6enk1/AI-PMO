@@ -114,3 +114,18 @@ def test_dependency_cycle_is_detected_without_crashing(db, project, factory):
     snap = snapshot(db, project)
     assert snap.dependency_cycles
     assert {a.id, b.id} <= set(snap.dependency_cycles[0])
+
+
+def test_progress_gap_is_not_charged_when_progress_is_not_tracked(db, project, factory):
+    """進捗率の列が無いWBS（状態だけ管理）で、全Taskに進捗遅れを加点しない。"""
+    person = factory.person("Bob", capacity_tasks=8)
+    task = factory.task("設計", owner_id=person.id, planned_start=day(-20), planned_end=day(20),
+                        status="in_progress", progress=0)
+    factors = {f.key for f in snapshot(db, project).risk_details[task.id]}
+    assert "progress_gap" not in factors
+
+    # 別Taskに途中経過が入った時点で、進捗率を運用しているとみなす
+    factory.task("実装", owner_id=person.id, planned_start=day(-5), planned_end=day(25),
+                 status="in_progress", progress=40)
+    factors = {f.key for f in snapshot(db, project).risk_details[task.id]}
+    assert "progress_gap" in factors

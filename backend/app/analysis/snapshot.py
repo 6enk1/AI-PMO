@@ -447,6 +447,16 @@ class ProjectSnapshot:
             self.risk_details[view.id] = factors
 
     # -------------------------------------------------------------- accessors
+    def tracks_progress(self) -> bool:
+        """このプロジェクトが進捗率を運用しているか。
+
+        WBSに進捗率の列が無い（状態だけ管理している）ことは珍しくない。その場合
+        全Taskが0%になり、「想定より遅れている」と一斉に出てしまう。途中経過が
+        1件でも記録されていれば運用しているとみなし、無ければ進捗ベースの指摘を
+        止める。完了=100% は状態から導けるので根拠に数えない。
+        """
+        return any(0 < v.progress < 100 for v in self.views.values())
+
     def task_views(self) -> list[TaskView]:
         return list(self.views.values())
 

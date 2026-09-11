@@ -55,6 +55,8 @@ def detect_stalled_near_completion(s: ProjectSnapshot) -> list[RawFinding]:
 def detect_due_soon_low_progress(s: ProjectSnapshot) -> list[RawFinding]:
     """期限が近いのに進捗が低いTask。"""
     out = []
+    if not s.tracks_progress():
+        return out  # 進捗率を運用していないWBSでは、全Taskが0%で並ぶだけになる
     for v in s.active_views():
         d = v.days_to_due
         if d is None or v.is_overdue or d > 7:
@@ -277,7 +279,7 @@ def detect_green_but_issue_heavy(s: ProjectSnapshot) -> list[RawFinding]:
         open_issues = s.open_issues_for_task(v.id)
         if len(open_issues) < 2 or v.is_overdue:
             continue
-        if v.progress_gap > 10:
+        if s.tracks_progress() and v.progress_gap > 10:
             continue  # すでに進捗遅れとして見えているので「隠れて」いない
         severe = [i for i in open_issues if i.severity in HIGH_SEVERITIES]
         out.append(
@@ -308,6 +310,7 @@ def detect_progress_inconsistency(s: ProjectSnapshot) -> list[RawFinding]:
     # 実績日を1件も記録していないプロジェクトで「実績開始日が未入力」を全Taskに
     # 出しても意味がない（WBSにその列が無いだけ）。運用している場合だけ指摘する。
     tracks_actuals = any(v.task.actual_start for v in s.task_views())
+    tracks_progress = s.tracks_progress()
     for v in s.active_views():
         problems: list[Evidence] = []
         if v.progress >= 100 and v.status != "done":
@@ -316,7 +319,8 @@ def detect_progress_inconsistency(s: ProjectSnapshot) -> list[RawFinding]:
             problems.append(Evidence("実績終了日あり", f"実績終了日 {v.task.actual_end} が入力済みだがStatusは {v.status}"))
         if tracks_actuals and v.progress > 0 and v.task.actual_start is None:
             problems.append(Evidence("実績開始日なし", f"進捗 {v.progress:.0f}% だが実績開始日が未入力"))
-        if v.status == "in_progress" and v.progress == 0:
+        # 進捗率を運用していないWBSでは、進行中Taskが全部0%なのは不整合ではない
+        if tracks_progress and v.status == "in_progress" and v.progress == 0:
             problems.append(Evidence("進捗0%", "Statusは進行中だが進捗率0%"))
         rollup = s.child_progress_rollup(v)
         # 子より親の進捗が高い＝過大申告のみを指摘する。親が未入力（0%）の場合は
