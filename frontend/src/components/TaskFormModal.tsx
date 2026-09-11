@@ -143,10 +143,15 @@ export function TaskFormModal({ projectId, task, tasks, people, onClose, onSaved
           </Field>
         </div>
 
-        <Field label="説明">
+        <Field label={task?.is_summary ? "このカテゴリのゴール（説明）" : "説明"}>
           <textarea
             className="input"
             rows={2}
+            placeholder={
+              task?.is_summary
+                ? "このカテゴリが達成できたと言える状態（例: 業務フローに合意が取れていて、開発に着手できる状態）"
+                : ""
+            }
             value={form.description}
             onChange={(event) => setForm({ ...form, description: event.target.value })}
           />

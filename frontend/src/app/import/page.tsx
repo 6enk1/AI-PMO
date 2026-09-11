@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useProjects } from "@/components/ProjectProvider";
 import { Badge, Card, ErrorBanner, Field, Loading } from "@/components/ui";
-import { api, TEMPLATE_URL } from "@/lib/api";
+import { api, templateUrl } from "@/lib/api";
 import { STATUS_LABELS } from "@/lib/format";
 import { TRIAGE_CONTEXT_KEY } from "@/lib/triage";
 import type {
@@ -200,15 +200,24 @@ export default function ImportPage() {
         )}
         <div className="mt-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
           <p className="text-sm font-medium text-ink-700">
-            課題を集めるところからなら、記入用テンプレートを配ってください
+            集めるところからなら、記入用テンプレートを配ってください
           </p>
           <p className="mt-1 text-xs text-ink-500">
-            必須は「課題・気になっていること」の1列だけ。記入例・記入のしかたシート付きで、
+            どちらも必須は1列だけ。記入例と「記入のしかた」シート付きで、書いてもらったものを
             そのままここにアップロードすれば取り込めます。
           </p>
-          <a className="btn-secondary mt-2 inline-block" href={TEMPLATE_URL} download>
-            課題リストのテンプレート（.xlsx）をダウンロード
-          </a>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <a className="btn-secondary" href={templateUrl("wbs")} download>
+              WBSのテンプレート（.xlsx）
+            </a>
+            <a className="btn-secondary" href={templateUrl("issues")} download>
+              課題リストのテンプレート（.xlsx）
+            </a>
+          </div>
+          <p className="mt-2 text-[11px] text-ink-400">
+            WBSテンプレートには「このカテゴリのゴール」列があります。書いてもらうと、
+            取り込み後にカテゴリ（親タスク）の説明として保持されます。
+          </p>
         </div>
       </Card>
 
@@ -402,6 +411,7 @@ export default function ImportPage() {
                   <tr>
                     <th className="th">Task ID</th>
                     <th className="th">タスク名</th>
+                    {mapping.category_goal && <th className="th">カテゴリのゴール</th>}
                     <th className="th">担当</th>
                     <th className="th">開始</th>
                     <th className="th">終了</th>
@@ -417,6 +427,11 @@ export default function ImportPage() {
                     <tr key={index} className="border-t border-slate-100">
                       <td className="td text-xs text-ink-500">{String(row.code ?? "")}</td>
                       <td className="td font-medium">{String(row.title ?? "")}</td>
+                      {mapping.category_goal && (
+                        <td className="td max-w-[220px] text-xs text-ink-500">
+                          {String(row.category_goal ?? "")}
+                        </td>
+                      )}
                       <td className="td text-xs">{String(row.owner ?? "")}</td>
                       <td className="td text-xs tabular-nums">{String(row.planned_start ?? "")}</td>
                       <td className="td text-xs tabular-nums">{String(row.planned_end ?? "")}</td>

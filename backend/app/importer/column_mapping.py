@@ -14,6 +14,11 @@ FIELD_SYNONYMS: dict[str, tuple[str, ...]] = {
     ),
     "parent": ("親タスク", "親", "parent", "parent task", "大分類", "中分類", "フェーズ", "phase", "工程", "カテゴリ", "category", "分類", "グループ"),
     "description": ("詳細", "説明", "description", "detail", "details", "作業詳細", "概要"),
+    # カテゴリ（親タスク）の一段上のゴール。親タスクの説明として取り込む
+    "category_goal": (
+        "ゴール", "カテゴリのゴール", "大カテゴリのゴール", "このカテゴリのゴール", "目的", "目標",
+        "狙い", "ねらい", "達成条件", "完了条件", "アウトカム", "goal", "objective", "outcome", "purpose",
+    ),
     "owner": ("担当", "担当者", "責任者", "owner", "assignee", "assigned to", "pic", "主担当", "resource", "リソース", "実施者", "担当部署"),
     "planned_start": ("開始日", "開始予定日", "予定開始日", "着手日", "計画開始日", "start", "start date", "startdate", "開始", "予定開始", "着手予定日"),
     "planned_end": (
@@ -42,6 +47,7 @@ FIELD_LABELS: dict[str, str] = {
     "title": "タスク名",
     "parent": "親タスク",
     "description": "詳細",
+    "category_goal": "カテゴリのゴール",
     "owner": "担当者",
     "planned_start": "開始予定日",
     "planned_end": "終了予定日",

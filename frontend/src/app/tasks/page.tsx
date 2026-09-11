@@ -471,6 +471,21 @@ export default function TasksPage() {
                         カテゴリ・{task.child_count}件
                       </span>
                     )}
+                    {task.is_summary && (
+                      <p
+                        className="mt-0.5 max-w-[420px] overflow-hidden text-[11px] leading-snug text-indigo-700/80"
+                        style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
+                        title={task.description ?? ""}
+                      >
+                        {task.description ? (
+                          <>🎯 {task.description}</>
+                        ) : (
+                          <span className="text-ink-400">
+                            🎯 ゴール未記入（クリックして追記できます）
+                          </span>
+                        )}
+                      </p>
+                    )}
                     <div className="mt-0.5 flex flex-wrap gap-1">
                       {task.is_overdue && (
                         <Badge className="border-rose-200 bg-rose-50 text-rose-700">

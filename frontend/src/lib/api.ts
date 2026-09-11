@@ -25,9 +25,15 @@ export const API_BASE =
 // 記入用テンプレートの配布先。デモ（モックモード）ではバックエンドが無いので、
 // 同じ中身を public/ に置いた静的ファイルを配る。
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-export const TEMPLATE_URL = MOCK_ENABLED
-  ? `${BASE_PATH}/issue_list_template.xlsx`
-  : `${API_BASE}/api/imports/template`;
+const STATIC_TEMPLATES: Record<"issues" | "wbs", string> = {
+  issues: "issue_list_template.xlsx",
+  wbs: "wbs_template.xlsx",
+};
+export function templateUrl(kind: "issues" | "wbs"): string {
+  return MOCK_ENABLED
+    ? `${BASE_PATH}/${STATIC_TEMPLATES[kind]}`
+    : `${API_BASE}/api/imports/template?kind=${kind}`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // NEXT_PUBLIC_MOCK=1 のときはバックエンドを呼ばず、メモリ上の擬似データを返す

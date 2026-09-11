@@ -228,11 +228,18 @@ export function buildStore(config: MockConfig): MockStore {
     });
   });
 
-  const phases = ["要件フェーズ", "設計フェーズ", "開発フェーズ", "テストフェーズ"];
+  // カテゴリには「達成したいゴール」を持たせる（WBSテンプレートの「このカテゴリのゴール」）
+  const phases: Array<[string, string]> = [
+    ["要件フェーズ", "現場が使える業務フローに合意が取れていて、開発に着手できる状態にする"],
+    ["設計フェーズ", "画面・API・DBの仕様が確定し、実装を並行で進められる状態にする"],
+    ["開発フェーズ", "本番相当のデータで主要業務が一通り動く状態にする"],
+    ["テストフェーズ", "現場が自分たちで操作して、本番移行の判断ができる状態にする"],
+  ];
   const phaseIds: number[] = [];
-  phases.forEach((title, index) => {
+  phases.forEach(([title, goal], index) => {
     const task = baseTask(next(), main.id, title);
     task.code = `P-${index + 1}`;
+    task.description = goal;
     task.status = index < 2 ? "in_progress" : "not_started";
     tasks.push(task);
     phaseIds.push(task.id);

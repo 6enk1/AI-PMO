@@ -8,6 +8,7 @@ from .. import schemas
 from ..database import get_db
 from ..importer import excel
 from ..importer.template import template_bytes
+from ..importer.wbs_template import wbs_template_bytes
 
 router = APIRouter(prefix="/api/imports", tags=["import"])
 
@@ -15,13 +16,25 @@ ALLOWED_SUFFIXES = (".xlsx", ".xlsm", ".xls", ".csv")
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
 @router.get("/template")
-def download_template() -> Response:
-    """クライアントに配る課題リストのテンプレート（記入例・入力規則つき）。"""
+def download_template(
+    kind: str = Query("issues", pattern="^(issues|wbs)$"),
+) -> Response:
+    """クライアントに配る記入用テンプレート（記入例・入力規則つき）。
+
+    ``kind=issues`` が課題リスト、``kind=wbs`` がWBS（カテゴリのゴールつき）。
+    """
+    if kind == "wbs":
+        content, filename = wbs_template_bytes(), "wbs_template.xlsx"
+    else:
+        content, filename = template_bytes(), "issue_list_template.xlsx"
     return Response(
-        content=template_bytes(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="issue_list_template.xlsx"'},
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

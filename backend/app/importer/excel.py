@@ -148,6 +148,7 @@ def mapped_row(row: pd.Series, mapping: dict[str, str | None]) -> dict[str, Any]
         "title": vp.clean_str(_cell(row, mapping, "title"), 300),
         "parent": vp.clean_str(_cell(row, mapping, "parent"), 300),
         "description": vp.clean_str(_cell(row, mapping, "description")),
+        "category_goal": vp.clean_str(_cell(row, mapping, "category_goal")),
         "owner": vp.clean_str(_cell(row, mapping, "owner"), 120),
         "planned_start": vp.parse_date(_cell(row, mapping, "planned_start")),
         "planned_end": vp.parse_date(_cell(row, mapping, "planned_end")),
@@ -542,6 +543,8 @@ def commit_import(db: Session, request) -> dict[str, Any]:
     updated_tasks = 0
     unchanged_tasks = 0
     parent_names: dict[int, str] = {}
+    # カテゴリ（親タスク）のゴール。行に書かれていた値を、解決後の親へ移す
+    category_goals: dict[int, str] = {}
     dependency_refs: list[tuple[Task, list[str]]] = []
     issue_rows: list[tuple[Task, str]] = []
     milestone_rows: list[dict[str, Any]] = []
@@ -605,6 +608,8 @@ def commit_import(db: Session, request) -> dict[str, Any]:
         touched.append(task)
         if parsed["parent"]:
             parent_names[task.id] = parsed["parent"]
+        if parsed["category_goal"]:
+            category_goals[task.id] = parsed["category_goal"]
         if parsed["dependency"]:
             dependency_refs.append((task, parsed["dependency"]))
         if parsed["issue"] and request.create_issues:
@@ -632,6 +637,14 @@ def commit_import(db: Session, request) -> dict[str, Any]:
                 parent = by_code.get(vp.normalize_text(parent_code))
         if parent is not None and parent.id != task.id and task.parent_task_id != parent.id:
             task.parent_task_id = parent.id
+        # ゴールはカテゴリ（親）のもの。親が無い行なら、その行自身のゴールとして扱う
+        goal = category_goals.get(task.id)
+        if goal:
+            holder = parent if parent is not None and parent.id != task.id else task
+            if holder is task and holder.description:
+                pass  # 自分の詳細を上書きはしない
+            elif holder.description != goal:
+                holder.description = goal
 
     # ---- dependencies: existing project tasks are valid targets too
     created_dependencies = 0
